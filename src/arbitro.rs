@@ -2,7 +2,7 @@
 use std::{collections::HashMap, sync::Arc};
 use tokio::sync::RwLock;
 
-use crate::{pool::V2Pool, pool_utils::{wrapped_pool, PoolDir, SomePools}};
+use crate::{pool::V2Pool, pool_utils::{PoolDir, SomePools}};
 
 #[derive(Debug)]
 pub struct Arbitro {
@@ -14,18 +14,16 @@ impl Arbitro {
         Self { pools_by_token: Arc::new(RwLock::new(HashMap::new())) }
     }
 
-    pub async fn add_v2(&mut self, token: String, pool: V2Pool ,is0: bool) {
+    pub async fn add_v2(&mut self, token: String, pool: Arc<RwLock<V2Pool>> ,is0: bool) {
         let mut map = self.pools_by_token.write().await;
-        let pp = pool.address.clone();
-        let wp: wrapped_pool<V2Pool> = wrapped_pool::new(Arc::new(RwLock::new(pool)));
-        let pool_dir = PoolDir::new(wp,is0);
+   
+        let pool_dir = PoolDir::new(pool,is0);
        
         let some_pools = map
         .entry(token.to_string())
         .or_insert_with(| | Arc::new(RwLock::new(SomePools::new(vec![],vec![]))));
 
         some_pools.write().await.add_v2pool(pool_dir);
-        println!("added pool to arbitro {} on token {}", pp, is0);
     }   
 
     pub async fn pathfind(& self, start_address: &str,start_in: u128){

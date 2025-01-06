@@ -14,7 +14,7 @@ use pair::Pair;
 use pool::{Pool, V2Pool};
 use std::{collections::HashMap, str::FromStr, sync::Arc};
 use token::TokenData;
-use tokio::time::error::Error;
+use tokio::{sync::RwLock, time::error::Error};
 
 #[tokio::main]
 async fn main() -> Result<(), Error> {
@@ -136,9 +136,12 @@ async fn main() -> Result<(), Error> {
                         )
                         .await;
 
+                        let w_pool = Arc::new(RwLock::new(v2_pool));
+
                         println!("pair address returned by factory: {}", address.to_string());
 
-                        arbitro.add_v2(_token0.address.clone(), v2_pool, true).await;
+                        arbitro.add_v2(_token0.address.clone() , w_pool.clone(), true).await;
+                        arbitro.add_v2(_token1.address.clone() , w_pool.clone(), false).await;
                     }
 
                     Ok(Err(error)) => eprintln!("Low-level call error: {:?}", error),

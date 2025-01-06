@@ -36,7 +36,7 @@ pub struct PoolDir<T>
 where
     T: Pool + Debug + Send + Sync + 'static, // Ensure `T` is thread-safe and has a valid lifetime.
 {
-    pub pool: wrapped_pool<T>,
+    pub pool: Arc<RwLock<T>>,
     pub is0: bool,
 }
 
@@ -44,19 +44,7 @@ impl<T> PoolDir<T>
 where
     T: Pool + Debug + Send + Sync + 'static, // Ensure `T` is thread-safe and has a valid lifetime.
 {
-    pub fn new(pool: wrapped_pool<T>, is0: bool) -> Self{
+    pub fn new(pool: Arc<RwLock<T>>, is0: bool) -> Self{
         Self { pool: pool, is0: is0 }
-    }
-}
-
-
-#[derive(Debug)]
-pub struct wrapped_pool<T: Pool + Debug + Send + Sync + 'static>{
-    pool: Arc<RwLock<T>>,
-}
-
-impl<T: Pool + Debug + Send + Sync + 'static> wrapped_pool<T> {
-    pub fn new(_pool: Arc<RwLock<T>>) -> Self{
-        wrapped_pool { pool: _pool }
     }
 }
