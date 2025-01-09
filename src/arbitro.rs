@@ -41,7 +41,6 @@ impl Arbitro {
         for (token, pools_arc) in pools.iter() {
             let pool_count = pools_arc.read().await.v2pools.len();
             // Here you can get the length of the pools or any other detail
-            println!("ajsjsadkasnn");
             println!("{} has {} pools", token, pool_count);
         }
         

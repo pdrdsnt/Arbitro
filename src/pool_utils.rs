@@ -1,4 +1,6 @@
 use std::{fmt::Debug, sync::Arc};
+use bigdecimal::BigDecimal;
+use sqlx::pool;
 use tokio::sync::RwLock;
 
 use crate::pool::{Pool, V2Pool, V3Pool};
@@ -47,4 +49,13 @@ where
     pub fn new(pool: Arc<RwLock<T>>, is0: bool) -> Self{
         Self { pool: pool, is0: is0 }
     }
+}
+
+pub struct TradeData {
+    pub from0: bool,
+    pub amount_in: BigDecimal,
+    pub amount_out: BigDecimal,
+    pub price_impact: BigDecimal,
+    pub fee: BigDecimal,
+    pub raw_price: BigDecimal,
 }
