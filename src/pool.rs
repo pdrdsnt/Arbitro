@@ -1,5 +1,4 @@
 use std::str::FromStr;
-
 use crate::{pool_utils::TradeData, token::TokenData};
 use bigdecimal::{self, BigDecimal, FromPrimitive};
 use ethers::{
@@ -11,14 +10,6 @@ use ethers::{
 
 pub trait Pool {
     async fn update(&mut self);
-
-    async fn new_with_update(
-        address: Address,
-        token0: TokenData,
-        token1: TokenData,
-        contract: Contract<Provider<Ws>>,
-    ) -> Self;
-
     fn trade(&self, amount_in: u32, from: bool) -> TradeData;
 }
 
@@ -55,10 +46,9 @@ impl V2Pool {
             contract,
         }
     }
-}
 
-impl Pool for V2Pool {
-    async fn new_with_update(
+    
+    pub async fn new_with_update(
         address: Address,
         token0: TokenData,
         token1: TokenData,
@@ -69,6 +59,10 @@ impl Pool for V2Pool {
         instance
     }
 
+}
+
+impl Pool for V2Pool {
+    
     async fn update(&mut self) {
         let reserves_call_result = self
             .contract
@@ -130,7 +124,7 @@ impl Pool for V2Pool {
 
         // Create the trade data object
         TradeData {
-            from0,
+            from0: from0.clone(),
             amount_in: big_amount_in.clone(),
             amount_out,
             price_impact,
@@ -171,11 +165,8 @@ impl V3Pool {
             contract,
         }
     }
-}
 
-impl Pool for V3Pool {
-    async fn update(&mut self) {}
-    async fn new_with_update(
+    pub async fn new_with_update(
         address: Address,
         token0: TokenData,
         token1: TokenData,
@@ -186,9 +177,15 @@ impl Pool for V3Pool {
         instance
     }
 
+
+}
+
+impl Pool for V3Pool {
+    async fn update(&mut self) {}
+ 
     fn trade(&self, amount_in: u32, from: bool) -> TradeData {
         let trade_data = TradeData {
-            from0: true,
+            from0: from,
             amount_in: BigDecimal::from_str("0").unwrap(),
             amount_out: BigDecimal::from_str("0").unwrap(),
             price_impact: BigDecimal::from_str("0").unwrap(),

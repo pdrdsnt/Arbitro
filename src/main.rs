@@ -5,6 +5,7 @@ mod pair;
 mod pool;
 mod pool_utils;
 mod token;
+mod pathfinder;
 
 use abi::{Abi, Address};
 use blockchain_db::{BlockChains, Dex, Token};
