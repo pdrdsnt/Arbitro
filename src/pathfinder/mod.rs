@@ -1,79 +1,82 @@
-mod graph {
-
+mod pathfinder {
     use std::{
-        collections::HashMap, marker::PhantomData, sync::{Arc, RwLock}
-    };
-    
-    use crate::pathfinder::pathfinder;
-
-    struct Graph<K: PartialEq, V, H>
-    where
-        K: PartialEq,
-        H: PartialEq + PartialOrd,
-        V: pathfinder::Heuristic<H>,
-    {
-        map: Arc<RwLock<HashMap<K, V>>>,
-        _phantom: PhantomData<H>,
-    }
-}
-
-mod pathfinder
-{
-    use std::{
-        collections::HashMap,
-        sync::{Arc, RwLock},
+        borrow::Borrow, collections::HashMap, fs::read, future::Future, hash::Hash, sync::Arc,
     };
 
-    struct pathfinder<K, N>
+    use tokio::sync::RwLock;
+
+    struct Pathfinder<K, V, H>
     where
-        K: PartialEq,
+        K: Eq + Hash + Clone + Copy,
+        V: IntoIterator + Clone + Copy,
+        V::Item: Ord + AsRef<K> + AsRef<H> + Heuristic<H> + TryInto<Edge<K, H>>,
+        for<'b> &'b V: IntoIterator<Item = &'b V::Item>,
+        H: Eq + Ord + Hash,
     {
+        space: Arc<RwLock<HashMap<K, Arc<RwLock<V>>>>>,
+        edges: Arc<RwLock<HashMap<K, Edge<K, H>>>>,
         start: K,
-        current: K,
         target: K,
-        traversed: Vec<K>,
-        edge: Edge<K, N>,
-        path: Vec<Edge<K, N>>,
+        open: Vec<K>,
+        closed: Vec<K>,
     }
 
-    struct Edge<K, T>
+    pub trait Pathfind<K, V, H>
     where
-        K: PartialEq,
+        K: Eq + Hash + Clone + Copy,
+        V: IntoIterator + Clone + Copy,
+        V::Item: Ord + AsRef<K> + AsRef<H> + Heuristic<H> + TryInto<Edge<K, H>>,
+
+        for<'b> &'b V: IntoIterator<Item = &'b V::Item>,
+        H: Eq + Ord + Hash,
     {
-        pub id: K,
+        async fn get_connections(&mut self, from: K) -> Vec<Edge<K, H>>;
+    }
+
+    impl<K, V, H> Pathfind<K, V, H> for Pathfinder<K, V, H>
+    where
+        K: Eq + Hash + Clone + Copy,
+        V: IntoIterator + Clone + Copy,
+        V::Item: Ord + AsRef<K> + AsRef<H> + Heuristic<H> + Into<Edge<K, H>>,
+        for<'b> &'b V: IntoIterator<Item = &'b V::Item>,
+        H: Eq + Ord + Hash,
+    {
+        async fn get_connections(&mut self, from: K) -> Vec<Edge<K, H>> {
+            let try_read_keys = self.space.read().await;
+            let connections: Arc<RwLock<V>> = try_read_keys.get(&from).unwrap().clone();
+
+            let try_read_node = connections.read().await;
+            let mut connected_to: Vec<Edge<K, H>> = Vec::new();
+            for c in try_read_node.into_iter() {
+                let e: Edge<K, H> = c.into();
+                connected_to.push(e);
+            }
+            connected_to
+        }
+    }
+
+    pub struct Edge<K, H>
+    where
+        K: Eq + Hash + Clone + Copy,
+        H: Eq + Ord + Hash,
+    {
+        pub i: K,
         pub a: K,
         pub b: K,
         pub from_a: bool,
-        pub heuristic: T,
+        pub h: H,
     }
 
-    pub trait Heuristic<T: PartialEq + PartialOrd> {
-        fn get_h() -> T;
-    }
-
-    pub trait Pathfind<K, V>
+    impl<K, H> Heuristic<H> for Edge<K, H>
     where
-        K: PartialEq,
+        K: Eq + Hash + Clone + Copy,
+        H: Eq + Ord + Hash,
     {
-        async fn pathfind(&mut self, space: Arc<RwLock<HashMap<K, V>>>);
-    }
-
-    impl<K, V, N> Pathfind<K, V> for pathfinder<K, N>
-    where
-        K: PartialEq,
-    {
-        async fn pathfind(&mut self, space: Arc<RwLock<HashMap<K, V>>>) {
+        fn get_h(&mut self) {
             
-            let try_read_keys = space.try_read();
-            let read_keys = match try_read_keys {
-                Ok(hash_map) => hash_map,
-                Err(_) => return,
-            };
-
-            for key in read_keys.keys(){
-                
-            }
-           
         }
+    }
+    pub trait Heuristic<H: Eq + Ord + Hash> {
+        fn get_h(&mut self);
     }
 }
