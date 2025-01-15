@@ -1,15 +1,15 @@
-mod pathfinder {
+pub mod pathfinder {
     use std::{
-        borrow::Borrow, collections::HashMap, fs::read, future::Future, hash::Hash, sync::Arc,
+        collections::HashMap, hash::Hash, sync::Arc
     };
 
     use tokio::sync::RwLock;
 
-    struct Pathfinder<K, V, H>
+    pub struct Pathfinder<K, V, H>
     where
-        K: Eq + Hash + Clone + Copy,
-        V: IntoIterator + Clone + Copy,
-        V::Item: Ord + AsRef<K> + AsRef<H> + Heuristic<H> + TryInto<Edge<K, H>>,
+        K: Eq + Hash + Clone,
+        V: IntoIterator + Clone,
+        V::Item: Ord + Clone + AsRef<K> + Heuristic<H> + Into<Edge<K, H>>,
         for<'b> &'b V: IntoIterator<Item = &'b V::Item>,
         H: Eq + Ord + Hash,
     {
@@ -23,9 +23,9 @@ mod pathfinder {
 
     pub trait Pathfind<K, V, H>
     where
-        K: Eq + Hash + Clone + Copy,
-        V: IntoIterator + Clone + Copy,
-        V::Item: Ord + AsRef<K> + AsRef<H> + Heuristic<H> + TryInto<Edge<K, H>>,
+        K: Eq + Hash + Clone,
+        V: IntoIterator + Clone,
+        V::Item: Ord + Clone + AsRef<K> + Heuristic<H> + Into<Edge<K, H>>,
 
         for<'b> &'b V: IntoIterator<Item = &'b V::Item>,
         H: Eq + Ord + Hash,
@@ -35,9 +35,9 @@ mod pathfinder {
 
     impl<K, V, H> Pathfind<K, V, H> for Pathfinder<K, V, H>
     where
-        K: Eq + Hash + Clone + Copy,
-        V: IntoIterator + Clone + Copy,
-        V::Item: Ord + AsRef<K> + AsRef<H> + Heuristic<H> + Into<Edge<K, H>>,
+        K: Eq + Hash + Clone,
+        V: IntoIterator + Clone,
+        V::Item: Ord + Clone + AsRef<K> + Heuristic<H> + Into<Edge<K, H>>,
         for<'b> &'b V: IntoIterator<Item = &'b V::Item>,
         H: Eq + Ord + Hash,
     {
@@ -45,10 +45,10 @@ mod pathfinder {
             let try_read_keys = self.space.read().await;
             let connections: Arc<RwLock<V>> = try_read_keys.get(&from).unwrap().clone();
 
-            let try_read_node = connections.read().await;
+            let try_read_node: tokio::sync::RwLockReadGuard<'_, V> = connections.read().await;
             let mut connected_to: Vec<Edge<K, H>> = Vec::new();
-            for c in try_read_node.into_iter() {
-                let e: Edge<K, H> = c.into();
+            for c in &*try_read_node {
+                let e: Edge<K, H> = (*c).clone().into();
                 connected_to.push(e);
             }
             connected_to
@@ -57,25 +57,15 @@ mod pathfinder {
 
     pub struct Edge<K, H>
     where
-        K: Eq + Hash + Clone + Copy,
+        K: Eq + Hash + Clone,
         H: Eq + Ord + Hash,
     {
         pub i: K,
         pub a: K,
         pub b: K,
-        pub from_a: bool,
         pub h: H,
     }
 
-    impl<K, H> Heuristic<H> for Edge<K, H>
-    where
-        K: Eq + Hash + Clone + Copy,
-        H: Eq + Ord + Hash,
-    {
-        fn get_h(&mut self) {
-            
-        }
-    }
     pub trait Heuristic<H: Eq + Ord + Hash> {
         fn get_h(&mut self);
     }

@@ -1,11 +1,11 @@
 use std::str::FromStr;
-use crate::{pool_utils::TradeData, token::TokenData};
+use crate::pool_utils::TradeData;
 use bigdecimal::{self, BigDecimal, FromPrimitive};
 use ethers::{
     abi::Address,
     contract::Contract,
     providers::{Provider, Ws},
-    types::U256,
+    types::{H160, U256},
 };
 
 pub trait Pool {
@@ -16,8 +16,8 @@ pub trait Pool {
 #[derive(Debug)]
 pub struct V2Pool {
     pub address: Address,
-    pub token0: TokenData,
-    pub token1: TokenData,
+    pub token0: H160,
+    pub token1: H160,
     pub exchange: String,
     pub version: String,
     pub fee: u32,
@@ -30,8 +30,8 @@ impl V2Pool {
     // Private constructor
     async fn new(
         address: Address,
-        token0: TokenData,
-        token1: TokenData,
+        token0: H160,
+        token1: H160,
         contract: Contract<Provider<Ws>>,
     ) -> Self {
         Self {
@@ -50,8 +50,8 @@ impl V2Pool {
     
     pub async fn new_with_update(
         address: Address,
-        token0: TokenData,
-        token1: TokenData,
+        token0: H160,
+        token1: H160,
         contract: Contract<Provider<Ws>>,
     ) -> Self {
         let mut instance = V2Pool::new(address, token0, token1, contract).await;
@@ -76,10 +76,10 @@ impl Pool for V2Pool {
                         self.reserves0 = reserve0;
                         self.reserves1 = reserve1;
                     }
-                    Err(erro) => (println!("contract call error {}", erro)),
+                    Err(erro) => println!("contract call error {}", erro),
                 }
             }
-            Err(erro) => (println!("abi erro {}", erro)),
+            Err(erro) => println!("abi erro {}", erro),
         }
     }
 
@@ -124,7 +124,7 @@ impl Pool for V2Pool {
 
         // Create the trade data object
         TradeData {
-            from0: from0.clone(),
+            from0,
             amount_in: big_amount_in.clone(),
             amount_out,
             price_impact,
@@ -137,8 +137,8 @@ impl Pool for V2Pool {
 #[derive(Debug)]
 pub struct V3Pool {
     pub address: Address,
-    pub token0: TokenData,
-    pub token1: TokenData,
+    pub token0: H160,
+    pub token1: H160,
     pub exchange: String,
     pub version: String,
     pub fee: u32,
@@ -150,8 +150,8 @@ impl V3Pool {
     // Private constructor
     async fn new(
         address: Address,
-        token0: TokenData,
-        token1: TokenData,
+        token0: H160,
+        token1: H160,
         contract: Contract<Provider<Ws>>,
     ) -> Self {
         Self {
@@ -168,8 +168,8 @@ impl V3Pool {
 
     pub async fn new_with_update(
         address: Address,
-        token0: TokenData,
-        token1: TokenData,
+        token0: H160,
+        token1: H160,
         contract: Contract<Provider<Ws>>,
     ) -> Self {
         let mut instance = Self::new(address, token0, token1, contract).await;
@@ -184,14 +184,14 @@ impl Pool for V3Pool {
     async fn update(&mut self) {}
  
     fn trade(&self, amount_in: u32, from: bool) -> TradeData {
-        let trade_data = TradeData {
+        
+        TradeData {
             from0: from,
             amount_in: BigDecimal::from_str("0").unwrap(),
             amount_out: BigDecimal::from_str("0").unwrap(),
             price_impact: BigDecimal::from_str("0").unwrap(),
             fee: BigDecimal::from_str("0").unwrap(),
             raw_price: BigDecimal::from_str("0").unwrap(),
-        };
-        trade_data
+        }
     }
 }

@@ -1,7 +1,7 @@
 use std::{collections::HashMap, sync::Arc};
 use tokio::sync::RwLock;
 
-use crate::{pool::{Pool, V2Pool}, pool_utils::{AnyPool, PoolDir, SomePools}};
+use crate::{pool::V2Pool, pool_utils::{AnyPool, PoolDir, SomePools}};
 
 #[derive(Debug)]
 pub struct Arbitro {
@@ -27,17 +27,6 @@ impl Arbitro {
         some_pools.write().await.add_pool(pool_dir);
     }   
 
-    pub async fn pathfind(& self, start_address: &str,start_in: u128){
-        let _some_pools = {
-            // Lock only to get the SomePools instance
-            let map: tokio::sync::RwLockReadGuard<'_, HashMap<String, Arc<RwLock<SomePools>>>> = self.pools_by_token.read().await;
-            let pools: Arc<RwLock<SomePools>> = map.get(start_address).cloned().unwrap(); // Clone or reference the data
-            pools
-        };
-
-        let some_pools = _some_pools.read().await;
-
-    }
     pub async fn print(&self){
         let pools = self.pools_by_token.read().await;
         println!("{}" ,pools.len());

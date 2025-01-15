@@ -1,16 +1,10 @@
 use bigdecimal::BigDecimal;
-use ethers::{
-    abi::Address,
-    contract::Contract,
-    providers::{Provider, Ws},
-};
-use std::{fmt::Debug, result, sync::Arc};
+use ethers::abi::ethabi;
+use std::{fmt::Debug, sync::Arc};
 use tokio::sync::RwLock;
 
-use crate::{
-    pool::{self, Pool, V2Pool, V3Pool},
-    token::TokenData,
-};
+use crate::pool::{Pool, V2Pool, V3Pool};
+
 
 #[derive(Debug)]
 pub enum AnyPool {
@@ -61,8 +55,8 @@ impl PoolDir
 {
     pub fn new(pool: AnyPool, is0: bool) -> Self {
         Self {
-            pool: pool,
-            is0: is0,
+            pool,
+            is0,
         }
     }
 }
@@ -74,4 +68,11 @@ pub struct TradeData {
     pub price_impact: BigDecimal,
     pub fee: BigDecimal,
     pub raw_price: BigDecimal,
+}
+
+pub struct AbisData {
+    pub v2_pool: ethabi::Contract,
+    pub v3_pool: ethabi::Contract,
+    pub v2_factory: ethabi::Contract,
+    pub v3_factory: ethabi::Contract,
 }

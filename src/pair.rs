@@ -1,15 +1,34 @@
-use std::str::FromStr;
+use std::{hash::{Hash, Hasher}, str::FromStr};
 use ethers::{abi::Address, types::H160};
 
-
+#[derive(Clone,Debug)]
 pub struct Pair {
     pub a: Address,
     pub b: Address,
 }
 
-impl Into<String> for Pair {
-    fn into(self) -> String{
-        let mut arr = [self.a.to_string(),self.b.to_string()];
+impl PartialEq for Pair {
+    fn eq(&self, other: &Self) -> bool {
+        self.a == other.a && self.b == other.b
+    }
+}
+impl Hash for Pair {
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        // Ordena `a` e `b` antes de calcular o hash, garantindo que a ordem não importe
+        let (first, second) = if self.a < self.b {
+            (&self.a, &self.b)
+        } else {
+            (&self.b, &self.a)
+        };
+        first.hash(state);
+        second.hash(state);
+    }
+}
+impl Eq for Pair {}
+
+impl From<Pair> for String {
+    fn from(val: Pair) -> Self{
+        let mut arr = [val.a.to_string(),val.b.to_string()];
         arr.sort();
         arr.join("").to_string()
     }
