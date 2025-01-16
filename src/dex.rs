@@ -39,7 +39,7 @@ impl AnyDex {
         }
     }
 
-    pub async fn get_pair(&mut self, pair: Pair) {
+    pub async fn get_pool(&mut self, pair: Pair) -> Arc<RwLock<AnyPool>> {
         let a = pair.a;
         let b = pair.b;
         match self {
@@ -67,11 +67,13 @@ impl AnyDex {
 
                 let v2_pool = V2Pool::new_with_update(address, a, b, v2_pool_contract).await;
 
-                let w_pool = Arc::new(RwLock::new(v2_pool));
+                
 
-                let anypool = Arc::new(RwLock::new(AnyPool::V2(w_pool)));
+                let anypool = Arc::new(RwLock::new(AnyPool::V2(v2_pool)));
 
                 dex.pools.entry(pair).and_modify(|v| *v = anypool.clone());
+
+                anypool.clone()
             }
             AnyDex::V3(dex,v3_pool_abi_ethers) => todo!(),
         }

@@ -17,7 +17,7 @@ pub struct Token {
     pub address: H160,
     pub symbol: String,
     pub contract: Contract<Provider<Ws>>,
-    pub pools: Arc<RwLock<SomePools>>,
+    pub pools: SomePools,
 }
 
 impl Token {
@@ -26,7 +26,7 @@ impl Token {
         address: H160,
         symbol: String,
         contract: Contract<Provider<Ws>>,
-        pools: Arc<RwLock<SomePools>>,
+        pools: SomePools,
     ) -> Self {
         Token {
             name,
@@ -37,13 +37,11 @@ impl Token {
         }
     }
 
-    pub async fn add_v2(&mut self, token: String, pool: Arc<RwLock<V2Pool>>, is0: bool) {
+    pub fn add_pool(&mut self, pool: Arc<RwLock<AnyPool>>, is0: bool) {
         
-        let any_pool = AnyPool::V2(pool.clone());
+        let pool_dir = PoolDir::new(pool.clone(), is0);
 
-        let pool_dir = PoolDir::new(any_pool, is0);
-
-        self.pools.write().await.add_pool(pool_dir);
+        self.pools.add_pool(pool_dir);
     }
 
     pub async fn update_pools(&mut self){

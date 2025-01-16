@@ -8,7 +8,7 @@ pub mod pathfinder {
     pub struct Pathfinder<K, V, H>
     where
         K: Eq + Hash + Clone,
-        V: IntoIterator + Clone,
+        V: IntoIterator,
         V::Item: Ord + Clone + AsRef<K> + Heuristic<H> + Into<Edge<K, H>>,
         for<'b> &'b V: IntoIterator<Item = &'b V::Item>,
         H: Eq + Ord + Hash,

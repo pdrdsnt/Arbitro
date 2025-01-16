@@ -8,22 +8,22 @@ use crate::pool::{Pool, V2Pool, V3Pool};
 
 #[derive(Debug)]
 pub enum AnyPool {
-    V2(Arc<RwLock<V2Pool>>),
-    V3(Arc<RwLock<V3Pool>>),
+    V2(V2Pool),
+    V3(V3Pool),
 }
 
 impl Pool for AnyPool {
     async fn update(&mut self) {
         match self {
-            AnyPool::V2(v2_pool) => v2_pool.write().await.update().await,
-            AnyPool::V3(v3_pool) => v3_pool.write().await.update().await,
+            AnyPool::V2(v2_pool) => v2_pool.update().await,
+            AnyPool::V3(v3_pool) => v3_pool.update().await,
         }
     }
 
     fn trade(&self, amount_in: u32, from: bool) -> TradeData {
         match self {
-            AnyPool::V2(v2_pool) => v2_pool.try_read().unwrap().trade(amount_in, from),
-            AnyPool::V3(v3_pool) => v3_pool.try_read().unwrap().trade(amount_in, from),
+            AnyPool::V2(v2_pool) => v2_pool.trade(amount_in, from),
+            AnyPool::V3(v3_pool) => v3_pool.trade(amount_in, from),
         }
     }
 }
@@ -47,13 +47,13 @@ impl SomePools {
 #[derive(Debug)]
 pub struct PoolDir
 {
-    pub pool: AnyPool,
+    pub pool: Arc<RwLock<AnyPool>>,
     pub is0: bool,
 }
 
 impl PoolDir
 {
-    pub fn new(pool: AnyPool, is0: bool) -> Self {
+    pub fn new(pool: Arc<RwLock<AnyPool>>, is0: bool) -> Self {
         Self {
             pool,
             is0,
@@ -75,4 +75,6 @@ pub struct AbisData {
     pub v3_pool: ethabi::Contract,
     pub v2_factory: ethabi::Contract,
     pub v3_factory: ethabi::Contract,
+    pub bep_20: ethabi::Contract,
+    
 }
