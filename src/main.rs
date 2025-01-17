@@ -14,7 +14,7 @@ use dex::{AnyDex, Dex};
 use ethers::{contract::*, prelude::*};
 use pair::Pair;
 use pool::V2Pool;
-use pool_utils::{AbisData, SomePools};
+use pool_utils::AbisData;
 use std::{collections::HashMap, str::FromStr, sync::Arc};
 use token::Token;
 use tokio::{sync::RwLock, time::error::Error};

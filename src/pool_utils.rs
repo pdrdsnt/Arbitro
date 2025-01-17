@@ -1,15 +1,24 @@
 use bigdecimal::BigDecimal;
-use ethers::abi::ethabi;
-use std::{fmt::Debug, sync::Arc};
+use ethers::{abi::ethabi, types::H160};
+use std::{fmt::Debug, i128, sync::Arc};
 use tokio::sync::RwLock;
 
-use crate::pool::{Pool, V2Pool, V3Pool};
+use crate::{pathfinder::pathfinder::{Edge, Heuristic}, pool::{Pool, V2Pool, V3Pool}};
 
 
 #[derive(Debug)]
 pub enum AnyPool {
     V2(V2Pool),
     V3(V3Pool),
+}
+
+impl AnyPool {
+    pub fn is_0(&self,addr: H160) -> bool {
+        match self {
+            AnyPool::V2(v2_pool) => v2_pool.token0 == addr,
+            AnyPool::V3(v3_pool) => v3_pool.token0 == addr,
+        }
+    }
 }
 
 impl Pool for AnyPool {
@@ -20,7 +29,7 @@ impl Pool for AnyPool {
         }
     }
 
-    fn trade(&self, amount_in: u32, from: bool) -> TradeData {
+    fn trade(&self, amount_in: u32, from: bool) -> Trade{
         match self {
             AnyPool::V2(v2_pool) => v2_pool.trade(amount_in, from),
             AnyPool::V3(v3_pool) => v3_pool.trade(amount_in, from),
@@ -29,13 +38,13 @@ impl Pool for AnyPool {
 }
 
 #[derive(Debug)]
-pub struct SomePools {
+pub struct TokenPools {
     pub pools: Vec<PoolDir>
 }
 
-impl SomePools {
+impl TokenPools {
     pub fn new(pools: Vec<PoolDir>) -> Self {
-        SomePools { pools }
+        TokenPools { pools }
     }
     pub fn add_pool(&mut self, pool: PoolDir) {
         println!("added pool so some_pools");
@@ -61,7 +70,20 @@ impl PoolDir
     }
 }
 
-pub struct TradeData {
+pub struct AbisData {
+    pub v2_pool: ethabi::Contract,
+    pub v3_pool: ethabi::Contract,
+    pub v2_factory: ethabi::Contract,
+    pub v3_factory: ethabi::Contract,
+    pub bep_20: ethabi::Contract,
+    
+}
+
+#[derive(Clone)]
+pub struct Trade {
+    pub token0: H160,
+    pub token1: H160,
+    pub pool: H160,
     pub from0: bool,
     pub amount_in: BigDecimal,
     pub amount_out: BigDecimal,
@@ -70,11 +92,31 @@ pub struct TradeData {
     pub raw_price: BigDecimal,
 }
 
-pub struct AbisData {
-    pub v2_pool: ethabi::Contract,
-    pub v3_pool: ethabi::Contract,
-    pub v2_factory: ethabi::Contract,
-    pub v3_factory: ethabi::Contract,
-    pub bep_20: ethabi::Contract,
+impl Heuristic<i128> for Trade {
+    fn get_h(self) -> i128 {
+        let big_decimal = (&self.amount_in - &self.amount_out) * BigDecimal::from(1000);
+        let scaled_amount = big_decimal;
+
+        let bg = scaled_amount.as_bigint_and_exponent().0;
+        let bites = bg.to_signed_bytes_le();
+        let mut i128_bytes: [u8; 16] = [0; 16]; 
+        let bytes = bg.to_signed_bytes_le(); 
     
+        for (i, &byte) in bytes.iter().enumerate() {
+            i128_bytes[15 - i] = byte;
+        }
+    
+        i128::from_be_bytes(i128_bytes)      
+    }
+}
+
+impl Into<Edge<H160,i128>> for Trade {  
+    fn into(self) -> Edge<H160,i128> {
+        Edge{
+            a: if self.from0 {self.token0} else {self.token1},
+            b: if self.from0 {self.token0} else {self.token1},
+            i: self.pool,
+            h: 2,
+        }
+    }
 }

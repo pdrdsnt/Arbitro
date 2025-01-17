@@ -1,3 +1,4 @@
+use bigdecimal::BigDecimal;
 use ethers::{
     contract::Contract,
     providers::{Provider, Ws},
@@ -8,7 +9,7 @@ use std::{collections::HashMap, str::FromStr, sync::Arc};
 use tokio::sync::RwLock;
 
 use crate::{
-    blockchain_db::{DexModel, TokenModel}, dex::{self, AnyDex, Dex}, pair::Pair, pathfinder::pathfinder::Pathfinder, pool::V2Pool, pool_utils::{AbisData, AnyPool, PoolDir, SomePools}, token::Token
+    blockchain_db::{DexModel, TokenModel}, dex::{self, AnyDex, Dex}, pair::Pair, pathfinder::pathfinder::Pathfinder, pool::V2Pool, pool_utils::{AbisData, AnyPool, PoolDir}, token::Token
 };
 
 pub struct Arbitro {
@@ -82,7 +83,7 @@ impl Arbitro {
             };
 
             let token_contract = Contract::new(addr, abis.bep_20.clone(), provider.clone());
-            let pools = SomePools::new(vec![]); // Replace with actual pool initialization logic
+            let pools = HashMap::<H160,PoolDir>::new();
 
             _tkns.push(Token::new(
                 tokens_data[i].name.clone(),

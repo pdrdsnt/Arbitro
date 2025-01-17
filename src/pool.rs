@@ -1,5 +1,5 @@
 use std::str::FromStr;
-use crate::pool_utils::TradeData;
+use crate::{pool_utils::{PoolDir, Trade}, token::Token};
 use bigdecimal::{self, BigDecimal, FromPrimitive};
 use ethers::{
     abi::Address,
@@ -10,7 +10,7 @@ use ethers::{
 
 pub trait Pool {
     async fn update(&mut self);
-    fn trade(&self, amount_in: u32, from: bool) -> TradeData;
+    fn trade(&self, amount_in: u32, from: bool) -> Trade;
 }
 
 #[derive(Debug)]
@@ -83,7 +83,7 @@ impl Pool for V2Pool {
         }
     }
 
-    fn trade(&self, amount_in: u32, from0: bool) -> TradeData {
+    fn trade(&self, amount_in: u32, from0: bool) -> Trade {
         let big_amount_in = BigDecimal::from_u32(amount_in).unwrap();
         let r0 = BigDecimal::from_str(&self.reserves0.to_string()).unwrap();
         let r1 = BigDecimal::from_str(&self.reserves1.to_string()).unwrap();
@@ -123,7 +123,10 @@ impl Pool for V2Pool {
         let price_impact = (&current_price - &new_price) / &current_price;
 
         // Create the trade data object
-        TradeData {
+        Trade {
+            token0: self.token0,
+            token1: self.token1,
+            pool: self.address,
             from0,
             amount_in: big_amount_in.clone(),
             amount_out,
@@ -183,9 +186,12 @@ impl V3Pool {
 impl Pool for V3Pool {
     async fn update(&mut self) {}
  
-    fn trade(&self, amount_in: u32, from: bool) -> TradeData {
+    fn trade(&self, amount_in: u32, from: bool) -> Trade {
         
-        TradeData {
+        Trade {
+            token0: self.token0,
+            token1: self.token1,
+            pool: self.address,
             from0: from,
             amount_in: BigDecimal::from_str("0").unwrap(),
             amount_out: BigDecimal::from_str("0").unwrap(),
