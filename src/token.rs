@@ -8,7 +8,7 @@ use ethers::{
 use tokio::sync::RwLock;
 
 use crate::{
-    pathfinder::pathfinder::Edge,
+    pathfinder::pathfinder::{Edge, IntoEdges},
     pool::{Pool, V2Pool},
     pool_utils::{AnyPool, PoolDir, Trade},
 };
@@ -39,6 +39,7 @@ impl Token {
     }
 
     pub async fn add_pool(&mut self, pool: Arc<RwLock<AnyPool>>, is0: bool) {
+        println!("add pool called on token");
         let pool_dir = PoolDir::new(pool.clone(), is0);
 
         let key = match &*pool.read().await {
@@ -46,29 +47,28 @@ impl Token {
             AnyPool::V3(v3_pool) => v3_pool.address.clone(),
         };
 
+        println!("added pool {} to token {}",&key, self.name);
         self.pools.entry(key).or_insert(pool_dir);
     }
 
     pub async fn update_pools(&mut self) {}
 }
 
-impl IntoIterator for Token {
+impl IntoEdges<H160,i128> for Token {
     type Item = Trade;
 
-    type IntoIter = std::vec::IntoIter<Trade>;
+    fn get_edges(self) -> Vec<Edge<H160,i128>> {
 
-    fn into_iter(self) -> Self::IntoIter {
-
-        let mut edges: Vec<Trade> = vec![];
+        let mut edges: Vec<Edge<H160,i128>> = vec![];
 
         let _ = self.pools.iter()
         .map(|addr_and_pool| {
             let pool_read = &*addr_and_pool.1.pool.try_read().unwrap();
             let trade_data = pool_read.trade(100, pool_read.is_0(self.address));
-            edges.push(trade_data);
+            edges.push(trade_data.into());
         });
 
-        edges.into_iter()
+        edges
         
     }
 }

@@ -60,8 +60,7 @@ async fn main() -> Result<(), Error> {
     let abis_arc = Arc::new(abis);
    
     let mut arbitro = Arbitro::new(_dexes,_tokens,provider,abis_arc);
-    arbitro.create_pools();
-    
+    arbitro.create_pools().await;
     
     Ok(())
 }

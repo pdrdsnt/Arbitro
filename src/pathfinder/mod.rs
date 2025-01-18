@@ -1,60 +1,51 @@
 pub mod pathfinder {
-    use std::{
-        collections::HashMap, hash::Hash, sync::Arc
-    };
+    use std::{collections::HashMap, hash::Hash, ops::Deref, sync::Arc};
 
     use tokio::sync::RwLock;
 
     pub struct Pathfinder<K, V, H>
     where
         K: Eq + Hash + Clone,
-        V: IntoIterator,
-        V::Item: Clone + Heuristic<H> + Into<Edge<K, H>>,
-        for<'b> &'b V: IntoIterator<Item = &'b V::Item>,
+        V: IntoEdges<K, H>,
+        V::Item: Clone + Heuristic<H>,
         H: Eq + Ord + Hash,
     {
-        space: Arc<RwLock<HashMap<K, Arc<RwLock<V>>>>>,
-        edges: Arc<RwLock<HashMap<K, Edge<K, H>>>>,
-        start: K,
-        target: K,
-        open: Vec<K>,
-        closed: Vec<K>,
+        pub space: HashMap<K, Arc<RwLock<V>>>,
+        pub edges: HashMap<K, Edge<K, H>>,
+        pub start: K,
+        pub target: K,
+        pub open: Vec<K>,
+        pub closed: Vec<K>,
     }
 
     pub trait Pathfind<K, V, H>
     where
         K: Eq + Hash + Clone,
-        V: IntoIterator + Clone,
-        V::Item: Clone + Heuristic<H> + Into<Edge<K, H>>,
-
+        V: IntoEdges<K, H>,
+        V::Item: Clone + Heuristic<H>,
         for<'b> &'b V: IntoIterator<Item = &'b V::Item>,
         H: Eq + Ord + Hash,
     {
-        async fn get_connections(&mut self, from: K) -> Vec<Edge<K, H>>;
+        fn get_connections(&mut self, from: K) -> Vec<Edge<K, H>>;
     }
 
-    impl<K, V, H> Pathfind<K, V, H> for Pathfinder<K, V, H>
+    impl<K, V, H> Pathfinder<K, V, H>
     where
         K: Eq + Hash + Clone,
-        V: IntoIterator + Clone,
-        V::Item: Clone + Heuristic<H> + Into<Edge<K, H>>,
+        V: IntoEdges<K, H> + Copy,
+        V::Item: Clone + Heuristic<H>,
         for<'b> &'b V: IntoIterator<Item = &'b V::Item>,
         H: Eq + Ord + Hash,
     {
-        async fn get_connections(&mut self, from: K) -> Vec<Edge<K, H>> {
-            let try_read_keys = self.space.read().await;
-            let connections: Arc<RwLock<V>> = try_read_keys.get(&from).unwrap().clone();
+        fn get_connections(&mut self, from: K) -> Vec<Edge<K, H>> {
 
-            let try_read_node: tokio::sync::RwLockReadGuard<'_, V> = connections.read().await;
-            let mut connected_to: Vec<Edge<K, H>> = Vec::new();
-            for c in &*try_read_node {
-                let e: Edge<K, H> = (*c).clone().into();
-                connected_to.push(e);
-            }
-            connected_to
+            let connections: Arc<RwLock<V>> = self.space.get(&from).unwrap().clone();
+            let try_read_node = connections.blocking_read();
+            try_read_node.get_edges()
         }
     }
 
+    #[derive(Clone)]
     pub struct Edge<K, H>
     where
         K: Eq + Hash + Clone,
@@ -68,5 +59,10 @@ pub mod pathfinder {
 
     pub trait Heuristic<H: Eq + Ord + Hash> {
         fn get_h(self) -> H;
+    }
+
+    pub trait IntoEdges<K: Eq + Hash + Clone, H: Ord + Eq + PartialOrd + Hash> {
+        type Item: Clone + Heuristic<H>;
+        fn get_edges(self) -> Vec<Edge<K, H>>;
     }
 }

@@ -1,4 +1,5 @@
-use std::{hash::{Hash, Hasher}, str::FromStr};
+use std::{fmt::format, hash::{Hash, Hasher}, str::FromStr};
+use axum::Error;
 use ethers::{abi::Address, types::H160};
 
 #[derive(Clone,Debug)]
@@ -34,13 +35,17 @@ impl From<Pair> for String {
     }
 }
 
+
 impl TryFrom<[String; 2]> for Pair {
     type Error = String;
 
     fn try_from(value: [String; 2]) -> Result<Self, Self::Error> {
 
         if value[0].len() != 42 || value[1].len() != 42 {
-            return Err(("").to_string());
+            println!("error converting, string lenght need to be 42");
+            println!("lenght 0 = {}", value[0].len());
+            println!("lenght 1 = {}", value[1].len());
+            return Err("".to_string());
         }
         let mut addresses = value; // Create a mutable copy of the array
         // Sort the addresses in-place

@@ -1,7 +1,9 @@
 use std::{collections::HashMap, sync::Arc};
 
 use ethers::{
-    contract::Contract, providers::{Provider, Ws}, types::H160
+    contract::Contract,
+    providers::{Provider, Ws},
+    types::H160,
 };
 use tokio::sync::RwLock;
 
@@ -23,59 +25,72 @@ pub enum AnyDex {
 }
 
 impl AnyDex {
-    pub fn new(name: String, v2: bool, factory: Contract<Provider<Ws>>,pool_abi: Arc<AbisData>) -> Self {
+    pub fn new(
+        name: String,
+        v2: bool,
+        factory: Contract<Provider<Ws>>,
+        pool_abi: Arc<AbisData>,
+    ) -> Self {
         if v2 {
-            Self::V2(Dex {
-                name,
-                factory,
-                pools: HashMap::new(),
-            },pool_abi)
+            Self::V2(
+                Dex {
+                    name,
+                    factory,
+                    pools: HashMap::new(),
+                },
+                pool_abi,
+            )
         } else {
-            Self::V3(Dex {
-                name,
-                factory,
-                pools: HashMap::new(),
-            },pool_abi)
+            Self::V3(
+                Dex {
+                    name,
+                    factory,
+                    pools: HashMap::new(),
+                },
+                pool_abi,
+            )
         }
     }
 
-    pub async fn get_pool(&mut self, pair: Pair) -> Arc<RwLock<AnyPool>> {
+    pub async fn get_pool(&mut self, pair: Pair) -> Option<Arc<RwLock<AnyPool>>> {
         let a = pair.a;
         let b = pair.b;
         match self {
-            AnyDex::V2(dex,v2_pool_abi_ethers) => {
+            AnyDex::V2(dex, v2_pool_abi_ethers) => {
                 let method = dex
                     .factory
                     .method::<(H160, H160), H160>("getPair", (a, b))
                     .unwrap();
 
                 // Send the transaction and await the response
-                let address = method.call_raw().await.unwrap();
+                if let Ok(address) = method.call_raw().await {
+                    if address == H160::zero() {
+                        println!("no pool, returned {}", address);
 
-                if address == H160::zero() {
-                    println!("no pool, returned {}", address);
+                        println!("=====================");
+                        return None
+                    }
 
-                    println!("=====================");
-                    todo!()
+                    let v2_pool_contract = Contract::new(
+                        address,
+                        v2_pool_abi_ethers.v2_pool.clone(),
+                        dex.factory.client().clone(),
+                    );
+
+                    let v2_pool = V2Pool::new_with_update(address, a, b, v2_pool_contract).await;
+
+                    let anypool = Arc::new(RwLock::new(AnyPool::V2(v2_pool)));
+
+                    dex.pools.entry(pair).and_modify(|v| *v = anypool.clone());
+                    println!("new pool, returned {}", address);
+                    Some(anypool.clone())
+                }else {
+                    
+                    None
+
                 }
-
-                let v2_pool_contract = Contract::new(
-                    address,
-                    v2_pool_abi_ethers.v2_pool.clone(),
-                    dex.factory.client().clone(),
-                );
-
-                let v2_pool = V2Pool::new_with_update(address, a, b, v2_pool_contract).await;
-
-                
-
-                let anypool = Arc::new(RwLock::new(AnyPool::V2(v2_pool)));
-
-                dex.pools.entry(pair).and_modify(|v| *v = anypool.clone());
-
-                anypool.clone()
             }
-            AnyDex::V3(dex,v3_pool_abi_ethers) => todo!(),
+            AnyDex::V3(dex, v3_pool_abi_ethers) => todo!(),
         }
     }
 
@@ -90,7 +105,7 @@ impl AnyDex {
     pub fn get_pools_with_token(&self, token: H160) -> Vec<(Pair, Arc<RwLock<AnyPool>>, bool)> {
         match self {
             AnyDex::V2(dex, _) | AnyDex::V3(dex, _) => {
-                let mut pools = Vec::<(Pair,Arc<RwLock<AnyPool>>, bool)>::new();
+                let mut pools = Vec::<(Pair, Arc<RwLock<AnyPool>>, bool)>::new();
                 for (key, pool) in dex.pools.iter() {
                     if let Ok(pair) = Pair::try_from(key.clone()) {
                         if pair.a == token {
@@ -102,6 +117,19 @@ impl AnyDex {
                 }
                 pools
             }
+        }
+    }
+
+    pub fn get_name(&self) -> &str {
+        match self {
+            AnyDex::V2(dex, _) | AnyDex::V3(dex, _) => &dex.name,
+        }
+    }
+
+    pub fn get_version(&self) -> &str {
+        match self {
+            AnyDex::V2(_, _) => "v2",
+            AnyDex::V3(_, _) => "v3",
         }
     }
 }
