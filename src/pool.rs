@@ -303,7 +303,8 @@ impl Pool for V3Pool {
         }
 
         // Because the backward search collects ticks in descending order, reverse it:
-        previous_ticks.reverse();
+        // no do not reverse it because when this direction will be used it will need to be inverted anyway
+        // previous_ticks.reverse();
 
         // Forward search (3 ticks)
         let mut next_ticks = Vec::new();
@@ -363,7 +364,11 @@ impl Pool for V3Pool {
         // For now we assume we're swapping token0 for token1 when from0 == true.
         // (You would add a branch for the reverse case.)
 
-        let ticks: &[Tick] = if from0 {self.active_ticks.split_at(3).0 } else {self.active_ticks.split_at(2).1 };
+        let ticks: &[Tick] = if from0 {
+            self.active_ticks.split_at(2).1
+        } else {
+            self.active_ticks.split_at(2).0
+        };
 
         let mut remaining_in = BigDecimal::from(amount_in);
         let mut total_out = BigDecimal::from(0);
@@ -387,7 +392,7 @@ impl Pool for V3Pool {
 
         // Iterate over active ticks.
         // We assume self.active_ticks are sorted in the direction of the swap.
-        for tick in &self.active_ticks {
+        for tick in ticks {
             // Calculate the next tick's sqrt price.
             // Uniswap V3 defines: sqrtPrice = 1.0001^(tick/2) * 2^96.
             // In relative terms, the ratio between ticks is 1.0001^((tick.tick - current_tick)/2).
@@ -403,8 +408,12 @@ impl Pool for V3Pool {
             //    amount_in = liquidity * (new_sqrt - current_sqrt) / (new_sqrt * current_sqrt)
             // Here we compute the amount needed to reach next_sqrt_price.
             let available_liquidity = BigDecimal::from_str(&current_liquidity.to_string()).unwrap();
-            let amount_possible = (&available_liquidity * (&next_sqrt_price - &current_sqrt_price))
-                / (&next_sqrt_price * &current_sqrt_price);
+            let amount_possible = if from0 {
+                (&available_liquidity * (&next_sqrt_price - &current_sqrt_price))
+                    / (&next_sqrt_price * &current_sqrt_price)
+            } else {
+                &available_liquidity * (&current_sqrt_price - &next_sqrt_price)
+            };
 
             if remaining_in < amount_possible {
                 // The remaining amount does not cross the tick boundary.
