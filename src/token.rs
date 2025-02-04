@@ -5,10 +5,11 @@ use ethers::{
     providers::{Provider, Ws},
     types::H160,
 };
+use sqlx::pool;
 use tokio::sync::RwLock;
 
 use crate::{
-    pathfinder::pathfinder::{Edge, IntoEdges},
+    pathfinder::pathfinder::{Edge, IntoConnections},
     pool::{Pool, V2Pool},
     pool_utils::{AnyPool, PoolDir, Trade},
 };
@@ -47,28 +48,22 @@ impl Token {
             AnyPool::V3(v3_pool) => v3_pool.address.clone(),
         };
 
-        println!("added pool {} to token {}",&key, self.name);
+        println!("added pool {} to token {}", &key, self.name);
         self.pools.entry(key).or_insert(pool_dir);
     }
 
     pub async fn update_pools(&mut self) {}
 }
 
-impl IntoEdges<H160,i128> for Token {
+impl IntoConnections for Token {
     type Item = Trade;
-
-    fn get_edges(self) -> Vec<Edge<H160,i128>> {
-
-        let mut edges: Vec<Edge<H160,i128>> = vec![];
-
-        let _ = self.pools.iter()
-        .map(|addr_and_pool| {
-            let pool_read = &*addr_and_pool.1.pool.try_read().unwrap();
-            let trade_data = pool_read.trade(100, pool_read.is_0(self.address));
-            edges.push(trade_data.into());
-        });
-
-        edges
-        
+    fn get_connections(&mut self) -> Vec<Trade> {
+        let mut trades = Vec::<Trade>::new();
+        for (_, pool_dir) in &mut self.pools {
+            let pool_read = pool_dir.pool.try_read().unwrap();
+            let trade_data = pool_read.trade(100, pool_dir.is0);
+            trades.push(trade_data);
+        }
+        trades
     }
 }

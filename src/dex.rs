@@ -9,7 +9,7 @@ use tokio::sync::RwLock;
 
 use crate::{
     pair::Pair,
-    pool::V2Pool,
+    pool::{V2Pool, V3Pool},
     pool_utils::{AbisData, AnyPool},
 };
 
@@ -68,7 +68,7 @@ impl AnyDex {
                         println!("no pool, returned {}", address);
 
                         println!("=====================");
-                        return None
+                        return None;
                     }
 
                     let v2_pool_contract = Contract::new(
@@ -81,22 +81,57 @@ impl AnyDex {
 
                     let anypool = Arc::new(RwLock::new(AnyPool::V2(v2_pool)));
 
-                    dex.pools.entry(pair).and_modify(|v| *v = anypool.clone());
+                    dex.pools
+                        .entry(pair.clone())
+                        .and_modify(|v| *v = anypool.clone());
+                    if let Some(pool) = dex.pools.get_mut(&pair) {
+                    } else {
+                        dex.pools.insert(pair.clone(), anypool.clone());
+                    }
+                    println!("new pool, returned {}", address);
+                    Some(anypool.clone())
+                } else {
+                    None
+                }
+            }
+            AnyDex::V3(dex, v3_pool_abi_ethers) => {
+                let method = dex
+                    .factory
+                    .method::<(H160, H160), H160>("getPool", (a, b))
+                    .unwrap();
+
+                if let Ok(address) = method.call_raw().await {
+                    let v3_pool_contract = Contract::new(
+                        address,
+                        v3_pool_abi_ethers.v3_pool.clone(),
+                        dex.factory.client().clone(),
+                    );
+
+                    let v3_pool = V3Pool::new_with_update(address, a, b, v3_pool_contract).await;
+                    let anypool = Arc::new(RwLock::new(AnyPool::V3(v3_pool)));
+
+                    dex.pools
+                        .entry(pair.clone())
+                        .and_modify(|v| *v = anypool.clone());
+                    if let Some(pool) = dex.pools.get_mut(&pair) {
+                    } else {
+                        dex.pools.insert(pair.clone(), anypool.clone());
+                    }
                     println!("new pool, returned {}", address);
                     Some(anypool.clone())
                 }else {
-                    
                     None
-
                 }
             }
-            AnyDex::V3(dex, v3_pool_abi_ethers) => todo!(),
         }
     }
 
     pub fn add_pool(&mut self, pair: Pair, pool: Arc<RwLock<AnyPool>>) {
         match self {
             AnyDex::V2(dex, _) | AnyDex::V3(dex, _) => {
+                dex.pools.insert(pair, pool);
+            }
+            AnyDex::V3(dex, _) | AnyDex::V3(dex, _) => {
                 dex.pools.insert(pair, pool);
             }
         }

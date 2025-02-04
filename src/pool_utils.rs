@@ -15,22 +15,22 @@ pub enum AnyPool {
 impl AnyPool {
     pub fn is_0(&self,addr: H160) -> bool {
         match self {
-            AnyPool::V2(v2_pool) => (v2_pool.token0 == addr || v2_pool.token1 == addr),
-            AnyPool::V3(v3_pool) => (v3_pool.token0 == addr || v3_pool.token1 == addr),
+            AnyPool::V2(v2_pool) => v2_pool.token0 == addr || v2_pool.token1 == addr,
+            AnyPool::V3(v3_pool) => v3_pool.token0 == addr || v3_pool.token1 == addr,
         }
     }
 
     pub fn in_pool(&self,addr: H160) -> bool {
         match self {
-            AnyPool::V2(v2_pool) => (v2_pool.token0 == addr),
-            AnyPool::V3(v3_pool) => (v3_pool.token0 == addr),
+            AnyPool::V2(v2_pool) => v2_pool.token0 == addr,
+            AnyPool::V3(v3_pool) => v3_pool.token0 == addr,
         }
     }
 
     pub fn get_address(&self) -> H160 {
         match self {
-            AnyPool::V2(v2_pool) => (v2_pool.address),
-            AnyPool::V3(v3_pool) => (v3_pool.address),
+            AnyPool::V2(v2_pool) => v2_pool.address,
+            AnyPool::V3(v3_pool) => v3_pool.address,
         }
     }
 }
@@ -106,8 +106,8 @@ pub struct Trade {
     pub raw_price: BigDecimal,
 }
 
-impl Heuristic<i128> for Trade {
-    fn get_h(self) -> i128 {
+impl Heuristic<H160,i128> for Trade {
+    fn get_h(&self) -> i128 {
         let big_decimal = (&self.amount_in - &self.amount_out) * BigDecimal::from(1000);
         let scaled_amount = big_decimal;
 
@@ -122,10 +122,8 @@ impl Heuristic<i128> for Trade {
     
         i128::from_be_bytes(i128_bytes)      
     }
-}
 
-impl Into<Edge<H160,i128>> for Trade {  
-    fn into(self) -> Edge<H160,i128> {
+    fn edge(&self) -> Edge<H160,i128> {
         Edge{
             a: if self.from0 {self.token0} else {self.token1},
             b: if self.from0 {self.token0} else {self.token1},
@@ -134,3 +132,12 @@ impl Into<Edge<H160,i128>> for Trade {
         }
     }
 }
+
+
+#[derive(Debug)]
+pub struct Tick{
+    pub tick: i32,
+    pub  liquidityNet: i128,
+}
+
+

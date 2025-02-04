@@ -6,8 +6,7 @@ use ethers::{
     types::H160,
     utils::hex::ToHex,
 };
-use sqlx::pool;
-use std::{collections::HashMap, str::FromStr, sync::Arc};
+use std::{clone, collections::{HashMap, HashSet}, marker::PhantomData, ops::Deref, str::FromStr, sync::Arc};
 use tokio::sync::RwLock;
 
 use crate::{
@@ -16,14 +15,14 @@ use crate::{
     pair::{self, Pair},
     pathfinder::pathfinder::Pathfinder,
     pool::V2Pool,
-    pool_utils::{AbisData, AnyPool, PoolDir},
+    pool_utils::{AbisData, AnyPool, PoolDir, Trade},
     token::Token,
 };
 
 pub struct Arbitro {
-    pub tokens: Vec<Token>,
+    
     pub dexes: Vec<AnyDex>,
-    pub pools: Vec<Arc<RwLock<AnyPool>>>,
+  
     pub pathfinder: Pathfinder<H160, Token, i128>,
 }
 
@@ -35,23 +34,20 @@ impl Arbitro {
         abis: Arc<AbisData>,
     ) -> Self {
         let mut arbitro = Arbitro {
-            tokens: vec![],
             dexes: vec![],
-            pools: vec![],
             pathfinder: Pathfinder {
                 space: HashMap::new(),
-                edges: HashMap::new(),
                 start: H160::zero(),
                 target: H160::zero(),
-                open: Vec::<H160>::new(),
-                closed: Vec::<H160>::new(),
+                open: HashSet::<Trade>::new(),
+                closed: HashSet::<Trade>::new(),
+                h: PhantomData,
             },
         };
         arbitro.create_dexes(dexes_data, provider.clone(), abis.clone());
         arbitro.create_tokens(tokens_data, provider.clone(), abis.clone());
         println!("Iniciando a criação do Arbitro...");
         println!("Dexes criados: {}", arbitro.dexes.len());
-        println!("Tokens criados: {}", arbitro.tokens.len());
         println!("Criação do Arbitro concluída.");
 
         arbitro
@@ -122,19 +118,6 @@ impl Arbitro {
             let token_contract = Contract::new(addr, abis.bep_20.clone(), provider.clone());
             let mut pools = HashMap::<H160, PoolDir>::new();
 
-            for p in &*self.pools {
-                let cpool = p.blocking_read();
-                let (in_pool, is_zero) = (cpool.in_pool(addr), cpool.is_0(addr));
-                if !in_pool {
-                    continue;
-                }
-                let pool_with_dir = PoolDir {
-                    pool: p.clone(),
-                    is0: is_zero,
-                };
-                pools.entry(cpool.get_address()).or_insert(pool_with_dir);
-            }
-
             println!("token created: {} ", &tokens_data[i].name,);
             _tkns.push(Token::new(
                 tokens_data[i].name.clone(),
@@ -145,15 +128,23 @@ impl Arbitro {
             ));
         }
 
-        self.tokens = _tkns;
     }
 
     pub async fn create_pools(&mut self) {
-        for t0_i in 0..self.tokens.len() - 1 {
-            for t1_i in t0_i + 1..self.tokens.len() {
-                let (left, right) = self.tokens.split_at_mut(t1_i);
-                let mut token0 = &mut left[t0_i];
-                let mut token1 = &mut right[0];
+
+        let mut tokens_addresses: Vec<H160> = self.pathfinder.space.keys().cloned().collect();
+        for t0_i in 0..tokens_addresses.len() - 1 {
+            for t1_i in t0_i + 1..tokens_addresses.len() {
+
+                let addr_0 = &tokens_addresses[t0_i];
+                let addr_1 = &tokens_addresses[t1_i];
+
+                let mut _token0 = self.pathfinder.space.get(addr_0).unwrap();
+                let mut _token1 = self.pathfinder.space.get(addr_1).unwrap();
+
+                let mut token0 = _token0.write().await;
+                let mut token1 = _token1.write().await;
+ 
                 if token0.address == token1.address {
                     continue;
                 }
@@ -161,8 +152,8 @@ impl Arbitro {
                 print!("token 1 address: {:?} ", token1.address);
 
                 if let Ok(pair) = Pair::try_from([
-                    format!("{:?}", token0.address),
-                    format!("{:?}", token1.address),
+                    format!("{:?}", addr_0),
+                    format!("{:?}", addr_1),
                 ]) {
                     for dex in self.dexes.iter_mut() {
                         if let Some(pool) = dex.get_pool(pair.clone()).await {
@@ -171,13 +162,16 @@ impl Arbitro {
                                 "pool created {} ",
                                 pool.clone().try_read().unwrap().get_address()
                             );
-                            token0.add_pool(pool.clone(), pair.a == token0.address).await;
-                            token1.add_pool(pool.clone(), pair.a == token1.address).await;
-                            self.pools.push(pool);
+                            token0.add_pool(pool.clone(), pair.a == addr_0.clone()).await;
+                            token1.add_pool(pool.clone(), pair.a == addr_1.clone()).await;
                         }
                     }
                 }
             }
         }
+    }
+
+    pub async fn pathfind(&mut self,start: H160){
+
     }
 }
