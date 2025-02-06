@@ -1,4 +1,4 @@
-use crate::pool_utils::{Tick, Trade};
+use crate::{pool_utils::{Tick, Trade}, token::Token};
 use bigdecimal::{self, BigDecimal, FromPrimitive};
 use std::str::FromStr;
 
@@ -20,8 +20,8 @@ pub trait Pool {
 #[derive(Debug)]
 pub struct V2Pool {
     pub address: Address,
-    pub token0: H160,
-    pub token1: H160,
+    pub token0: Token,
+    pub token1: Token,
     pub exchange: String,
     pub version: String,
     pub fee: u32,
@@ -34,8 +34,8 @@ impl V2Pool {
     // Private constructor
     async fn new(
         address: Address,
-        token0: H160,
-        token1: H160,
+        token0: Token,
+        token1: Token,
         contract: Contract<Provider<Ws>>,
     ) -> Self {
         Self {
@@ -53,8 +53,8 @@ impl V2Pool {
 
     pub async fn new_with_update(
         address: Address,
-        token0: H160,
-        token1: H160,
+        token0: Token,
+        token1: Token,
         contract: Contract<Provider<Ws>>,
     ) -> Self {
         let mut instance = V2Pool::new(address, token0, token1, contract).await;
@@ -125,8 +125,8 @@ impl Pool for V2Pool {
 
         // Create the trade data object
         Trade {
-            token0: self.token0,
-            token1: self.token1,
+            token0: self.token0.address,
+            token1: self.token1.address,
             pool: self.address,
             from0,
             amount_in: big_amount_in.clone(),
@@ -141,8 +141,8 @@ impl Pool for V2Pool {
 #[derive(Debug)]
 pub struct V3Pool {
     pub address: Address,
-    pub token0: H160,
-    pub token1: H160,
+    pub token0: Token,
+    pub token1: Token,
     pub exchange: String,
     pub version: String,
     pub fee: u32,
@@ -158,8 +158,8 @@ impl V3Pool {
     // Private constructor
     async fn new(
         address: Address,
-        token0: H160,
-        token1: H160,
+        token0: Token,
+        token1: Token,
         contract: Contract<Provider<Ws>>,
     ) -> Self {
         Self {
@@ -180,8 +180,8 @@ impl V3Pool {
 
     pub async fn new_with_update(
         address: Address,
-        token0: H160,
-        token1: H160,
+        token0: Token,
+        token1: Token,
         contract: Contract<Provider<Ws>>,
     ) -> Self {
         let mut instance = Self::new(address, token0, token1, contract).await;
@@ -444,12 +444,22 @@ impl Pool for V3Pool {
             }
         }
 
+        let decimal_diff = if from0 {
+            self.token0.decimals as i32 - self.token1.decimals as i32
+        } else {
+            self.token1.decimals as i32 - self.token0.decimals as i32
+        };
+    
+        let scaling_factor = bd_pow(&BigDecimal::from(10),&BigDecimal::from(decimal_diff));
+        let adjusted_total_out = &total_out * scaling_factor;
+    
+
         // Calculate price impact relative to the initial price.
         let price_impact = (&current_price - &initial_price) / &initial_price;
 
         Trade {
-            token0: self.token0,
-            token1: self.token1,
+            token0: self.token0.address,
+            token1: self.token1.address,
             pool: self.address,
             from0,
             amount_in: BigDecimal::from(amount_in),

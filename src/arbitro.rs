@@ -117,12 +117,15 @@ impl Arbitro {
 
             let token_contract = Contract::new(addr, abis.bep_20.clone(), provider.clone());
             let mut pools = HashMap::<H160, PoolDir>::new();
+            
+            let decimals = tokens_data[i].decimals;
 
             println!("token created: {} ", &tokens_data[i].name,);
             _tkns.push(Token::new(
                 tokens_data[i].name.clone(),
                 addr,
                 tokens_data[i].symbol.clone(),
+                decimals,
                 token_contract,
                 pools,
             ));
@@ -162,8 +165,8 @@ impl Arbitro {
                                 "pool created {} ",
                                 pool.clone().try_read().unwrap().get_address()
                             );
-                            token0.add_pool(pool.clone(), pair.a == addr_0.clone()).await;
-                            token1.add_pool(pool.clone(), pair.a == addr_1.clone()).await;
+                            token0.add_pool(pool.clone(), pair.a.address == addr_0.clone()).await;
+                            token1.add_pool(pool.clone(), pair.a.address == addr_1.clone()).await;
                         }
                     }
                 }

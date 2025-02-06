@@ -14,10 +14,12 @@ use crate::{
     pool_utils::{AnyPool, PoolDir, Trade},
 };
 
+#[derive(Debug,Clone)]
 pub struct Token {
     pub name: String,
     pub address: H160,
     pub symbol: String,
+    pub decimals: u8,
     pub contract: Contract<Provider<Ws>>,
     pub pools: HashMap<H160, PoolDir>,
 }
@@ -27,6 +29,7 @@ impl Token {
         name: String,
         address: H160,
         symbol: String,
+        decimals: u8,
         contract: Contract<Provider<Ws>>,
         pools: HashMap<H160, PoolDir>,
     ) -> Self {
@@ -35,6 +38,7 @@ impl Token {
             address,
             symbol,
             contract,
+            decimals,
             pools,
         }
     }

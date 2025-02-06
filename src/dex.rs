@@ -53,13 +53,13 @@ impl AnyDex {
     }
 
     pub async fn get_pool(&mut self, pair: Pair) -> Option<Arc<RwLock<AnyPool>>> {
-        let a = pair.a;
-        let b = pair.b;
+        let a = pair.a.clone();
+        let b = pair.b.clone();
         match self {
             AnyDex::V2(dex, v2_pool_abi_ethers) => {
                 let method = dex
                     .factory
-                    .method::<(H160, H160), H160>("getPair", (a, b))
+                    .method::<(H160, H160), H160>("getPair", (a.address, b.address))
                     .unwrap();
 
                 // Send the transaction and await the response
@@ -97,7 +97,7 @@ impl AnyDex {
             AnyDex::V3(dex, v3_pool_abi_ethers) => {
                 let method = dex
                     .factory
-                    .method::<(H160, H160), H160>("getPool", (a, b))
+                    .method::<(H160, H160), H160>("getPool", (a.address, b.address))
                     .unwrap();
 
                 if let Ok(address) = method.call_raw().await {
@@ -143,9 +143,9 @@ impl AnyDex {
                 let mut pools = Vec::<(Pair, Arc<RwLock<AnyPool>>, bool)>::new();
                 for (key, pool) in dex.pools.iter() {
                     if let Ok(pair) = Pair::try_from(key.clone()) {
-                        if pair.a == token {
+                        if pair.a.address == token {
                             pools.push((key.clone(), pool.clone(), true)); // `true` indica que o token é `a`
-                        } else if pair.b == token {
+                        } else if pair.b.address == token {
                             pools.push((key.clone(), pool.clone(), false)); // `false` indica que o token é `b`
                         }
                     }

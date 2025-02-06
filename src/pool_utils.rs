@@ -15,15 +15,15 @@ pub enum AnyPool {
 impl AnyPool {
     pub fn is_0(&self,addr: H160) -> bool {
         match self {
-            AnyPool::V2(v2_pool) => v2_pool.token0 == addr || v2_pool.token1 == addr,
-            AnyPool::V3(v3_pool) => v3_pool.token0 == addr || v3_pool.token1 == addr,
+            AnyPool::V2(v2_pool) => v2_pool.token0.address == addr || v2_pool.token1.address == addr,
+            AnyPool::V3(v3_pool) => v3_pool.token0.address == addr || v3_pool.token1.address == addr,
         }
     }
 
     pub fn in_pool(&self,addr: H160) -> bool {
         match self {
-            AnyPool::V2(v2_pool) => v2_pool.token0 == addr,
-            AnyPool::V3(v3_pool) => v3_pool.token0 == addr,
+            AnyPool::V2(v2_pool) => v2_pool.token0.address == addr,
+            AnyPool::V3(v3_pool) => v3_pool.token0.address == addr,
         }
     }
 
@@ -67,7 +67,7 @@ impl TokenPools {
 
 }
 
-#[derive(Debug)]
+#[derive(Debug,Clone)]
 pub struct PoolDir
 {
     pub pool: Arc<RwLock<AnyPool>>,

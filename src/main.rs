@@ -1,3 +1,6 @@
+
+#![allow(warnings)]
+
 mod arbitro;
 mod blockchain_db;
 mod dex;
