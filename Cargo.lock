@@ -84,6 +84,8 @@ dependencies = [
  "axum",
  "bigdecimal",
  "ethers",
+ "futures",
+ "graph",
  "num-bigint",
  "num-traits",
  "rust_decimal",
@@ -1512,6 +1514,10 @@ dependencies = [
  "js-sys",
  "wasm-bindgen",
 ]
+
+[[package]]
+name = "graph"
+version = "0.1.0"
 
 [[package]]
 name = "group"

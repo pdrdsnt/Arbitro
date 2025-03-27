@@ -1,10 +1,15 @@
 use bigdecimal::BigDecimal;
-use ethers::{abi::ethabi, types::H160};
+use ethers::{abi::ethabi, types::{H160, U256}};
+use graph::{
+    edge::Edge,
+    graph::{Connection, IntoConnections},
+};
 use std::{fmt::Debug, i128, sync::Arc};
 use tokio::sync::RwLock;
 
-use crate::{pathfinder::pathfinder::{Edge, Heuristic}, pool::{Pool, V2Pool, V3Pool}};
-
+use crate::{
+    pool::{Pool, V2Pool, V3Pool},
+};
 
 #[derive(Debug)]
 pub enum AnyPool {
@@ -13,14 +18,47 @@ pub enum AnyPool {
 }
 
 impl AnyPool {
-    pub fn is_0(&self,addr: H160) -> bool {
+    pub fn get_other(&self, token: &H160) -> Option<H160> {
         match self {
-            AnyPool::V2(v2_pool) => v2_pool.token0.address == addr || v2_pool.token1.address == addr,
-            AnyPool::V3(v3_pool) => v3_pool.token0.address == addr || v3_pool.token1.address == addr,
+            AnyPool::V2(v2_pool) => {
+                if v2_pool.token0.address == *token {
+                    Some(v2_pool.token1.address.clone())
+                } else if v2_pool.token1.address == *token {
+                    Some(v2_pool.token0.address.clone())
+                } else {
+                    None
+                }
+            }
+            AnyPool::V3(v3_pool) => {
+                if v3_pool.token0.address == *token {
+                    Some(v3_pool.token1.address.clone())
+                } else if v3_pool.token1.address == *token {
+                    Some(v3_pool.token0.address.clone())
+                } else {
+                    None
+                }
+            },
+        }
+    }
+    pub fn get_tokens(&self) -> [H160; 2] {
+        match self {
+            AnyPool::V2(v2_pool) => [v2_pool.token0.address, v2_pool.token1.address],
+            AnyPool::V3(v3_pool) => [v3_pool.token0.address, v3_pool.token1.address],
         }
     }
 
-    pub fn in_pool(&self,addr: H160) -> bool {
+    pub fn is_0(&self, addr: &H160) -> bool {
+        match self {
+            AnyPool::V2(v2_pool) => {
+                v2_pool.token0.address == *addr
+            }
+            AnyPool::V3(v3_pool) => {
+                v3_pool.token0.address == *addr
+            }
+        }
+    }
+
+    pub fn in_pool(&self, addr: H160) -> bool {
         match self {
             AnyPool::V2(v2_pool) => v2_pool.token0.address == addr,
             AnyPool::V3(v3_pool) => v3_pool.token0.address == addr,
@@ -43,7 +81,7 @@ impl Pool for AnyPool {
         }
     }
 
-    fn trade(&self, amount_in: u32, from: bool) -> Trade{
+    fn trade(&self, amount_in: U256, from: bool) -> Option<Trade> {
         match self {
             AnyPool::V2(v2_pool) => v2_pool.trade(amount_in, from),
             AnyPool::V3(v3_pool) => v3_pool.trade(amount_in, from),
@@ -53,7 +91,7 @@ impl Pool for AnyPool {
 
 #[derive(Debug)]
 pub struct TokenPools {
-    pub pools: Vec<PoolDir>
+    pub pools: Vec<PoolDir>,
 }
 
 impl TokenPools {
@@ -64,23 +102,17 @@ impl TokenPools {
         println!("added pool so some_pools");
         self.pools.push(pool);
     }
-
 }
 
-#[derive(Debug,Clone)]
-pub struct PoolDir
-{
+#[derive(Debug, Clone)]
+pub struct PoolDir {
     pub pool: Arc<RwLock<AnyPool>>,
     pub is0: bool,
 }
 
-impl PoolDir
-{
+impl PoolDir {
     pub fn new(pool: Arc<RwLock<AnyPool>>, is0: bool) -> Self {
-        Self {
-            pool,
-            is0,
-        }
+        Self { pool, is0 }
     }
 }
 
@@ -90,54 +122,26 @@ pub struct AbisData {
     pub v2_factory: ethabi::Contract,
     pub v3_factory: ethabi::Contract,
     pub bep_20: ethabi::Contract,
-    
 }
 
-#[derive(Clone)]
+#[derive(Clone, Debug, PartialEq, PartialOrd,Eq, Ord)]
 pub struct Trade {
     pub token0: H160,
     pub token1: H160,
     pub pool: H160,
     pub from0: bool,
-    pub amount_in: BigDecimal,
-    pub amount_out: BigDecimal,
-    pub price_impact: BigDecimal,
-    pub fee: BigDecimal,
-    pub raw_price: BigDecimal,
+    pub amount_in: ethers::types::U256,
+    pub amount_out: ethers::types::U256,
+    pub price_impact: U256,
+    pub fee: U256,
+    pub raw_price: U256,
 }
 
-impl Heuristic<H160,i128> for Trade {
-    fn get_h(&self) -> i128 {
-        let big_decimal = (&self.amount_in - &self.amount_out) * BigDecimal::from(1000);
-        let scaled_amount = big_decimal;
-
-        let bg = scaled_amount.as_bigint_and_exponent().0;
-        let bites = bg.to_signed_bytes_le();
-        let mut i128_bytes: [u8; 16] = [0; 16]; 
-        let bytes = bg.to_signed_bytes_le(); 
-    
-        for (i, &byte) in bytes.iter().enumerate() {
-            i128_bytes[15 - i] = byte;
-        }
-    
-        i128::from_be_bytes(i128_bytes)      
-    }
-
-    fn edge(&self) -> Edge<H160,i128> {
-        Edge{
-            a: if self.from0 {self.token0} else {self.token1},
-            b: if self.from0 {self.token0} else {self.token1},
-            i: self.pool,
-            h: self.get_h(),
-        }
-    }
-}
+use bigdecimal::ToPrimitive;
 
 
 #[derive(Debug)]
-pub struct Tick{
+pub struct Tick {
     pub tick: i32,
-    pub  liquidityNet: i128,
+    pub liquidityNet: i128,
 }
-
-

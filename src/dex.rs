@@ -95,10 +95,17 @@ impl AnyDex {
                 }
             }
             AnyDex::V3(dex, v3_pool_abi_ethers) => {
-                let method = dex
+                let method = match dex
                     .factory
                     .method::<(H160, H160), H160>("getPool", (a.address, b.address))
-                    .unwrap();
+                    {
+                        Ok(v) => v,
+                        Err(err) => {
+                            println!("no pool, returned None");
+                            println!("{}", err);
+                            return None
+                        },
+                    };
 
                 if let Ok(address) = method.call_raw().await {
                     let v3_pool_contract = Contract::new(

@@ -5,7 +5,6 @@ mod arbitro;
 mod blockchain_db;
 mod dex;
 mod pair;
-mod pathfinder;
 mod pool;
 mod pool_utils;
 mod token;
@@ -64,6 +63,8 @@ async fn main() -> Result<(), Error> {
    
     let mut arbitro = Arbitro::new(_dexes,_tokens,provider,abis_arc);
     arbitro.create_pools().await;
+    let last_token_address = H160::from_str(_tokens.last().unwrap().address.as_str()).unwrap();
+    arbitro.pathfind(&last_token_address).await;
     
     Ok(())
 }

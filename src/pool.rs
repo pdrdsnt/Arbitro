@@ -1,6 +1,10 @@
-use crate::{pool_utils::{Tick, Trade}, token::Token};
+use crate::{
+    pool_utils::{Tick, Trade},
+    token::Token,
+};
 use bigdecimal::{self, BigDecimal, FromPrimitive};
-use std::str::FromStr;
+use num_traits::float;
+use std::{ptr::read, str::FromStr};
 
 use ethers::{
     abi::Address,
@@ -14,7 +18,7 @@ use ethers::{
 };
 pub trait Pool {
     async fn update(&mut self);
-    fn trade(&self, amount_in: u32, from: bool) -> Trade;
+    fn trade(&self, amount_in: U256, from: bool) -> Option<Trade>;
 }
 
 #[derive(Debug)]
@@ -84,47 +88,69 @@ impl Pool for V2Pool {
         }
     }
 
-    fn trade(&self, amount_in: u32, from0: bool) -> Trade {
-        let big_amount_in = BigDecimal::from_u32(amount_in).unwrap();
-        let r0 = BigDecimal::from_str(&self.reserves0.to_string()).unwrap();
-        let r1 = BigDecimal::from_str(&self.reserves1.to_string()).unwrap();
+    fn trade(&self, amount_in: U256, from0: bool) -> Option<Trade> {
+        let big_amount_in = amount_in.clone();
+        let r0 = &self.reserves0;
+        let r1 = &self.reserves1;
 
         // Calculate the input and output reserves based on the trade direction
-        let (reserve_in, reserve_out) = if from0 { (&r0, &r1) } else { (&r1, &r0) };
+        let (reserve_in, reserve_out) = if from0 { (r0, r1) } else { (r1, r0) };
 
         // Fee multiplier: assume self.fee is in basis points (e.g., 30 for 0.3%)
-        let fee_multiplier =
-            BigDecimal::from(1) - (BigDecimal::from(self.fee) / BigDecimal::from(10_000));
+        let fee_multiplier = U256::from(self.fee);
+        let tenk = U256::from(10_000);
 
-        // Adjust the input amount for the fee
-        let amount_in_with_fee = &big_amount_in * &fee_multiplier;
+        let amount_after_fee = amount_in
+            .checked_mul(tenk.checked_sub(fee_multiplier)?)?
+            .checked_div(tenk)?;
 
         // Calculate amount out using the constant product formula
         // amount_out = (reserve_out * amount_in_with_fee) / (reserve_in + amount_in_with_fee)
-        let numerator = reserve_out * &amount_in_with_fee;
-        let denominator = reserve_in + &amount_in_with_fee;
+        let numerator = reserve_out * &amount_after_fee;
+        let denominator = reserve_in + &amount_after_fee;
+
+        if denominator == U256::from(0) {
+            return None;
+        }
+
         let amount_out = numerator / denominator;
 
         // New reserves after the swap
         let (new_r0, new_r1) = if from0 {
-            (&r0 + &big_amount_in, &r1 - &amount_out)
+            (r0 + big_amount_in, r1 - amount_out)
         } else {
-            (&r0 - &amount_out, &r1 + &big_amount_in)
+            (r0 - amount_out, r1 + big_amount_in)
         };
 
         // Calculate current and new prices
-        let current_price = if from0 { &r1 / &r0 } else { &r0 / &r1 };
-        let new_price = if from0 {
-            &new_r1 / &new_r0
+        let current_price = if from0 {
+            if *r0 == U256::from(0) {
+                return None;
+            }
+            r1 / r0
         } else {
-            &new_r0 / &new_r1
+            if *r1 == U256::from(0) {
+                return None;
+            }
+            r0 / r1
+        };
+        let new_price = if from0 {
+            if new_r0 == U256::from(0) {
+                return None;
+            }
+            new_r1 / new_r0
+        } else {
+            if new_r1 == U256::from(0) {
+                return None;
+            }
+            new_r0 / new_r1
         };
 
         // Price impact
         let price_impact = (&current_price - &new_price) / &current_price;
 
         // Create the trade data object
-        Trade {
+        Some(Trade {
             token0: self.token0.address,
             token1: self.token1.address,
             pool: self.address,
@@ -132,9 +158,9 @@ impl Pool for V2Pool {
             amount_in: big_amount_in.clone(),
             amount_out,
             price_impact,
-            fee: &big_amount_in - &amount_in_with_fee, // Fee amount
+            fee: &big_amount_in - &amount_after_fee, // Fee amount
             raw_price: current_price,
-        }
+        })
     }
 }
 
@@ -229,7 +255,7 @@ impl Pool for V3Pool {
             Err(erro) => println!("abi erro {}", erro),
         }
 
-        let liquidity_call_result = self.contract.method::<(), (U256)>("slot0", ()); // only U256 implements detokenizable and need to be converted
+        let liquidity_call_result = self.contract.method::<(), (U256)>("liquidity", ()); // only U256 implements detokenizable and need to be converted
 
         match liquidity_call_result {
             Ok(liquidity) => {
@@ -360,7 +386,8 @@ impl Pool for V3Pool {
 
         self.active_ticks = active_ticks;
     }
-    fn trade(&self, amount_in: u32, from0: bool) -> Trade {
+
+    fn trade(&self, amount_in: U256, from0: bool) -> Option<Trade> {
         // For now we assume we're swapping token0 for token1 when from0 == true.
         // (You would add a branch for the reverse case.)
 
@@ -370,25 +397,56 @@ impl Pool for V3Pool {
             self.active_ticks.split_at(2).0
         };
 
-        let mut remaining_in = BigDecimal::from(amount_in);
-        let mut total_out = BigDecimal::from(0);
+        let mut remaining_in = U256::from(amount_in);
+        let mut total_out = U256::from(0);
 
         // Save the initial price for price impact calculation.
-        let x96 = BigDecimal::from_str("79228162514264337593543950336").unwrap();
-        let sqrt_price_bd = BigDecimal::from_str(&self.x96price.to_string()).unwrap();
+        let x96 = U256::from_str("79228162514264337593543950336").unwrap();
+        let sqrt_price_bd = U256::from_str(&self.x96price.to_string()).unwrap();
         let initial_sqrt_price = &sqrt_price_bd / &x96;
         let initial_price = &initial_sqrt_price * &initial_sqrt_price;
 
         // Set starting state.
         let mut current_liquidity = self.liquidity;
-        let mut current_tick = self.current_tick;
+        let mut current_tick: i32 = self.current_tick;
         let mut current_sqrt_price = initial_sqrt_price.clone();
         let mut current_price = initial_price.clone();
 
         // Apply fee to input amount.
-        let fee_multiplier =
-            BigDecimal::from(1) - BigDecimal::from(self.fee) / BigDecimal::from(1_000_000);
-        remaining_in = remaining_in * &fee_multiplier;
+        remaining_in = remaining_in
+            .checked_mul(U256::from(1_000_000))
+            .unwrap()
+            .checked_sub(U256::from(self.fee))
+            .unwrap()
+            .checked_div(U256::from(1_000_000))
+            .unwrap();
+
+        // Precompute constants for tick math
+        let TICK_BASE_NUMERATOR: U256 = U256::from(10001); // 1.0001 scaled by 1e4
+        let TICK_BASE_DENOMINATOR: U256 = U256::from(10000);
+        let Q96: U256 = U256::from(1) << 96; // 2^96 in Q64.96 format
+        
+        // Calculate 1.0001^(tick_diff) in Q64.96 fixed point
+        let tick_base_pow = |tick_diff: i32| {
+            let abs_diff = tick_diff.unsigned_abs();
+            let mut result = Q96;
+
+            // Multiply by 1.0001 for each positive tick
+            for _ in 0..abs_diff {
+                result = result.checked_mul(TICK_BASE_NUMERATOR)?;
+                result = result.checked_div(TICK_BASE_DENOMINATOR)?;
+            }
+
+            // For negative ticks, divide instead of multiply
+            if tick_diff < 0 {
+                for _ in 0..abs_diff {
+                    result = result.checked_mul(TICK_BASE_DENOMINATOR)?;
+                    result = result.checked_div(TICK_BASE_NUMERATOR)?;
+                }
+            }
+
+            Some(result)
+        };
 
         // Iterate over active ticks.
         // We assume self.active_ticks are sorted in the direction of the swap.
@@ -396,23 +454,34 @@ impl Pool for V3Pool {
             // Calculate the next tick's sqrt price.
             // Uniswap V3 defines: sqrtPrice = 1.0001^(tick/2) * 2^96.
             // In relative terms, the ratio between ticks is 1.0001^((tick.tick - current_tick)/2).
-            let base = BigDecimal::from_str("1.0001").unwrap();
-            //dividing exponent by two to avoid srqroot
-            let exponent = BigDecimal::from(tick.tick - current_tick) / BigDecimal::from(2);
-            let ratio = bd_pow(&base, &exponent);
-            let next_sqrt_price = &current_sqrt_price * &ratio;
-            let next_price = &next_sqrt_price * &next_sqrt_price;
-
+            let tick_diff = tick.tick - current_tick;
+            let ratio = tick_base_pow(tick_diff / 2)?;
+            
+            let next_sqrt_price = current_sqrt_price
+            .checked_mul(ratio)?
+            .checked_div(Q96)?;;
+            
+            let next_price = next_sqrt_price
+            .checked_mul(next_sqrt_price)?
+            .checked_div(Q96)?;
             // Compute the maximum input that can be absorbed in the current range before hitting the next tick.
             // For a token0 swap, the exact formula is non-linear:
             //    amount_in = liquidity * (new_sqrt - current_sqrt) / (new_sqrt * current_sqrt)
             // Here we compute the amount needed to reach next_sqrt_price.
-            let available_liquidity = BigDecimal::from_str(&current_liquidity.to_string()).unwrap();
-            let amount_possible = if from0 {
-                (&available_liquidity * (&next_sqrt_price - &current_sqrt_price))
-                    / (&next_sqrt_price * &current_sqrt_price)
+            let available_liquidity = current_liquidity.clone();
+            let amount_possible = 
+            if from0 {
+                let diff = &next_sqrt_price - &current_sqrt_price;
+                if diff == U256::from(0) {
+                    return None;
+                }
+                (&available_liquidity * diff) / (&next_sqrt_price * &current_sqrt_price)
             } else {
-                &available_liquidity * (&current_sqrt_price - &next_sqrt_price)
+                let diff = &current_sqrt_price - &next_sqrt_price;
+                if diff == U256::from(0) {
+                    return None;
+                }
+                &available_liquidity * diff
             };
 
             if remaining_in < amount_possible {
@@ -421,13 +490,13 @@ impl Pool for V3Pool {
                 let amount_out = (&remaining_in * &current_sqrt_price * &current_sqrt_price)
                     / &available_liquidity;
                 total_out += amount_out;
-                remaining_in = BigDecimal::from(0);
+                remaining_in = U256::from(0);
                 break;
             } else {
                 // Consume the entire range up to next tick.
                 total_out += (&amount_possible * &current_sqrt_price * &current_sqrt_price)
                     / &available_liquidity;
-                remaining_in -= &amount_possible;
+                remaining_in -= amount_possible;
 
                 // Cross the tick: update current_tick and liquidity.
                 current_tick = tick.tick;
@@ -449,25 +518,26 @@ impl Pool for V3Pool {
         } else {
             self.token1.decimals as i32 - self.token0.decimals as i32
         };
-    
-        let scaling_factor = bd_pow(&BigDecimal::from(10),&BigDecimal::from(decimal_diff));
-        let adjusted_total_out = &total_out * scaling_factor;
-    
 
         // Calculate price impact relative to the initial price.
         let price_impact = (&current_price - &initial_price) / &initial_price;
-
-        Trade {
+        let big_amount_in = U256::from(amount_in);
+        let mut ratio = U256::from(0);
+        if &big_amount_in != &ratio {
+            ratio = &total_out / &big_amount_in;
+        }
+        // Create the trade data object
+        Some(Trade {
             token0: self.token0.address,
             token1: self.token1.address,
             pool: self.address,
             from0,
-            amount_in: BigDecimal::from(amount_in),
+            amount_in: big_amount_in,
             amount_out: total_out,
             price_impact,
-            fee: BigDecimal::from(amount_in) - remaining_in, // Total fee deducted.
+            fee: U256::from(amount_in) - remaining_in, // Total fee deducted.
             raw_price: current_price,
-        }
+        })
     }
 }
 
