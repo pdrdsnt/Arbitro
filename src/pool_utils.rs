@@ -4,7 +4,7 @@ use graph::{
     edge::Edge,
     graph::{Connection, IntoConnections},
 };
-use std::{fmt::Debug, i128, sync::Arc};
+use std::{fmt::Debug, i128, string, sync::Arc};
 use tokio::sync::RwLock;
 
 use crate::{
@@ -126,6 +126,8 @@ pub struct AbisData {
 
 #[derive(Clone, Debug, PartialEq, PartialOrd,Eq, Ord)]
 pub struct Trade {
+    pub dex: String,
+    pub version: String,
     pub token0: H160,
     pub token1: H160,
     pub pool: H160,
@@ -140,7 +142,7 @@ pub struct Trade {
 use bigdecimal::ToPrimitive;
 
 
-#[derive(Debug)]
+#[derive(Debug,Clone,Copy,PartialEq, Eq, PartialOrd, Ord)]
 pub struct Tick {
     pub tick: i32,
     pub liquidityNet: i128,
