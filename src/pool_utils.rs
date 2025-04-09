@@ -46,7 +46,6 @@ impl AnyPool {
             AnyPool::V3(v3_pool) => [v3_pool.token0.address, v3_pool.token1.address],
         }
     }
-
     pub fn is_0(&self, addr: &H160) -> bool {
         match self {
             AnyPool::V2(v2_pool) => {
@@ -57,18 +56,34 @@ impl AnyPool {
             }
         }
     }
-
     pub fn in_pool(&self, addr: H160) -> bool {
         match self {
             AnyPool::V2(v2_pool) => v2_pool.token0.address == addr,
             AnyPool::V3(v3_pool) => v3_pool.token0.address == addr,
         }
     }
-
     pub fn get_address(&self) -> H160 {
         match self {
             AnyPool::V2(v2_pool) => v2_pool.address,
             AnyPool::V3(v3_pool) => v3_pool.address,
+        }
+    }
+    pub fn get_fee(&self) -> u32 {
+        match self {
+            AnyPool::V2(v2_pool) => v2_pool.fee,
+            AnyPool::V3(v3_pool) => v3_pool.fee,
+        }
+    }
+    pub fn get_version(&self) -> String {
+        match self {
+            AnyPool::V2(_) => "v2".to_string(),
+            AnyPool::V3(_) => "v3".to_string(),
+        }
+    }
+    pub fn get_dex(&self) -> String {
+        match self {
+            AnyPool::V2(v2_pool) => v2_pool.exchange.clone(),
+            AnyPool::V3(v3_pool) => v3_pool.exchange.clone(),
         }
     }
 }
@@ -128,6 +143,7 @@ pub struct AbisData {
 pub struct Trade {
     pub dex: String,
     pub version: String,
+    pub fee: u32,
     pub token0: H160,
     pub token1: H160,
     pub pool: H160,
@@ -135,7 +151,7 @@ pub struct Trade {
     pub amount_in: ethers::types::U256,
     pub amount_out: ethers::types::U256,
     pub price_impact: U256,
-    pub fee: U256,
+    pub fee_amount: U256,
     pub raw_price: U256,
 }
 

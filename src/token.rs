@@ -97,7 +97,8 @@ impl Token {
         let mut best_amount = 0.0;
         for (_, pool_dir) in &self.pools {
             let pool_read = pool_dir.pool.try_read().unwrap();
-
+           
+            println!("trying trade in: {:?} {:?} {:?}", pool_read.get_dex(), pool_read.get_version(), pool_read.get_fee());
             if let Some(trade_data) = pool_read.trade(input, pool_dir.is0) {
                 let b = if trade_data.from0 {
                     trade_data.token1.clone()

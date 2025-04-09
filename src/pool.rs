@@ -102,6 +102,9 @@ impl Pool for V2Pool {
     }
 
     fn trade(&self, amount_in: U256, from0: bool) -> Option<Trade> {
+        if (from0 && self.reserves0 == U256::zero()) || (!from0 && self.reserves1 == U256::zero()) {
+            return None;
+        }
         let big_amount_in = amount_in.clone();
         let r0 = &self.reserves0;
         let r1 = &self.reserves1;
@@ -130,45 +133,41 @@ impl Pool for V2Pool {
 
         // New reserves after the swap
         let (new_r0, new_r1) = if from0 {
-            (r0 + big_amount_in, r1 - amount_out)
+            (r0 + amount_after_fee, r1 - amount_out)
         } else {
-            (r0 - amount_out, r1 + big_amount_in)
+            (r0 - amount_out, r1 + amount_after_fee)
         };
 
         // Calculate current and new prices
+        let scale = U256::from(1e18 as u64);
         let current_price = if from0 {
-            if *r0 == U256::from(0) {
-                return None;
-            }
-            r1 / r0
+            (self.reserves1.checked_mul(scale)?).checked_div(self.reserves0)?
         } else {
-            if *r1 == U256::from(0) {
-                return None;
-            }
-            r0 / r1
+            (self.reserves0.checked_mul(scale)?).checked_div(self.reserves1)?
         };
         let new_price = if from0 {
-            if new_r0 == U256::from(0) {
-                return None;
-            }
-            new_r1 / new_r0
+            (new_r1.checked_mul(scale)?).checked_div(new_r0)?
         } else {
-            if new_r1 == U256::from(0) {
-                return None;
-            }
-            new_r0 / new_r1
+            (new_r0.checked_mul(scale)?).checked_div(new_r1)?
         };
 
         // Price impact
-        let price_impact = if current_price > U256::from(0) {
-            (&current_price - &new_price) / &current_price
+        let price_impact = if current_price > U256::zero() {
+            let delta = if current_price > new_price {
+                current_price - new_price
+            } else {
+                new_price - current_price
+            };
+
+            delta.checked_mul(scale)?.checked_div(current_price)? // Scales to 1e18 (e.g., 0.1e18 = 10%)
         } else {
-            U256::from(0)
+            U256::zero()
         };
         // Create the trade data object
         Some(Trade {
             dex: self.exchange.clone(),
             version: self.version.clone(),
+            fee: self.fee,
             token0: self.token0.address,
             token1: self.token1.address,
             pool: self.address,
@@ -176,7 +175,7 @@ impl Pool for V2Pool {
             amount_in: big_amount_in.clone(),
             amount_out,
             price_impact,
-            fee: &big_amount_in - &amount_after_fee, // Fee amount
+            fee_amount: &big_amount_in - &amount_after_fee, // Fee amount
             raw_price: current_price,
         })
     }
@@ -308,7 +307,7 @@ impl Pool for V3Pool {
             ticks.retain(|&t| t.tick > self.current_tick); // ascending order
         } else {
             ticks.retain(|&t| t.tick < self.current_tick);
-            ticks.sort_by(|a, b| b.cmp(a)); // descending order
+            ticks.reverse(); // descending order
         };
 
         let mut remaining_in = U256::from(amount_in);
@@ -337,7 +336,6 @@ impl Pool for V3Pool {
         let TICK_BASE_DENOMINATOR: U256 = U256::from(10000);
         let Q96: U256 = U256::from(1) << 96; // 2^96 in Q64.96 format
 
-
         // Iterate over active ticks.
         // We assume self.active_ticks are sorted in the direction of the swap.
         for tick in ticks {
@@ -345,7 +343,7 @@ impl Pool for V3Pool {
             let next_sqroot_price = V3Pool::tick_price(tick.tick)?;
             // Uniswap V3 defines: sqrtPrice = 1.0001^(tick/2) * 2^96.
             // In relative terms, the ratio between ticks is 1.0001^((tick.tick - current_tick)/2).
-           
+
             // Compute the maximum input that can be absorbed in the current range before hitting the next tick.
             // For a token0 swap, the exact formula is non-linear:
             //    amount_in = liquidity * (new_sqrt - current_sqrt) / (new_sqrt * current_sqrt)
@@ -363,49 +361,80 @@ impl Pool for V3Pool {
             if remaining_in < amount_possible {
                 // The remaining amount does not cross the tick boundary.
                 // Use a linear approximation to compute the output.
-                let amount_out = if from0 {
+                let new_price = if from0 {
                     // Δy = Δx * L / (Δx + L / P)
-                    V3Pool::compute_swap_amount_from0(
+                    V3Pool::compute_price_from0(
                         &remaining_in,
                         &available_liquidity,
                         &current_sqrt_price,
-                        &next_sqroot_price,
+                        true,
                     )?
                 } else {
-                    V3Pool::compute_swap_amount_from1(
+                    V3Pool::compute_price_from1(
                         &remaining_in,
                         &available_liquidity,
                         &current_sqrt_price,
+                        true,
                     )?
                 };
-                total_out += amount_out;
+                // Compute delta_out based on the new price for token0 or token1 swaps
+                if from0 {
+                    let delta_out = available_liquidity
+                        .checked_mul(new_price.checked_sub(current_sqrt_price)?)?;
+                    total_out = total_out.checked_add(delta_out)?;
+                } else {
+                    let delta_num = available_liquidity
+                        .checked_mul(new_price.checked_sub(current_sqrt_price)?)?;
+                    let delta_den = current_sqrt_price.checked_mul(new_price)?;
+                    let delta_out = delta_num
+                        .checked_mul(U256::from(1u128 << 96))?
+                        .checked_div(delta_den)?;
+                    total_out = total_out.checked_add(delta_out)?;
+                }
+
                 println!("reamining in in bounds {}", remaining_in);
                 remaining_in = U256::from(0);
                 break;
             } else {
-                // Consume the entire range up to next tick.
-                let delta_out = available_liquidity
-                .checked_mul(next_sqroot_price.checked_sub(current_sqrt_price)?)?;
+                // Consume the entire range up to next tick
+                let delta_out = if from0 {
+                    // Token0→token1: L * (√P_next - √P_current)
+                    available_liquidity
+                        .checked_mul(next_sqroot_price.checked_sub(current_sqrt_price)?)?
+                } else {
+                    // Token1→token0: L * (√P_current - √P_next) / (√P_current * √P_next)
+                    let numerator = available_liquidity
+                        .checked_mul(current_sqrt_price.checked_sub(next_sqroot_price)?)?;
+                    let denominator = current_sqrt_price.checked_mul(next_sqroot_price)?;
+                    numerator.checked_div(denominator)?
+                };
+
                 total_out = total_out.checked_add(delta_out)?;
-
-
-
                 // Cross the tick: update current_tick and liquidity.
                 current_tick = tick.tick;
-               
+
                 let liquidity_net = tick.liquidityNet;
-                if liquidity_net >= 0 {
-                    current_liquidity += U256::from(liquidity_net as u128);
+                if from0 {
+                    // For token0→token1 swaps, add liquidity when tick is crossed from below
+                    current_liquidity = if liquidity_net > 0 {
+                        current_liquidity + U256::from(liquidity_net as u128)
+                    } else {
+                        current_liquidity - U256::from((-liquidity_net) as u128)
+                    };
                 } else {
-                    let abs_net = (-liquidity_net) as u128;
-                    current_liquidity = current_liquidity.saturating_sub(U256::from(abs_net));
+                    // For token1→token0 swaps, reverse direction
+                    current_liquidity = if liquidity_net < 0 {
+                        current_liquidity + U256::from((-liquidity_net) as u128)
+                    } else {
+                        current_liquidity - U256::from(liquidity_net as u128)
+                    };
                 }
 
                 // Update price to next tick.
                 current_sqrt_price = next_sqroot_price;
             }
         }
-    
+
         // NEW: Handle precision dust (rounding errors)
         if remaining_in < U256::from(10) {
             // Threshold for acceptable dust
@@ -415,7 +444,6 @@ impl Pool for V3Pool {
         if remaining_in > U256::zero() {
             println!("Remaining amount in: {}", remaining_in);
             println!("not enough liquidity");
-            return None;
         }
 
         // Create the trade data object
@@ -427,6 +455,7 @@ impl Pool for V3Pool {
         Some(Trade {
             dex: self.exchange.clone(),
             version: self.version.clone(),
+            fee: self.fee,
             token0: self.token0.address,
             token1: self.token1.address,
             pool: self.address,
@@ -434,7 +463,7 @@ impl Pool for V3Pool {
             amount_in: amount_in,
             amount_out: total_out,
             price_impact: amount_in,
-            fee: fee_amount, // Total fee deducted.
+            fee_amount: fee_amount, // Total fee deducted.
             raw_price: total_out,
         })
     }
@@ -466,31 +495,42 @@ impl V3Pool {
         }
     }
 
-    fn compute_swap_amount_from0(
+    fn compute_price_from0(
         amount: &U256,
         available_liquidity: &U256,
         current_sqrt_price: &U256,
-        next_sqrt_price: &U256,
+        add: bool,
     ) -> Option<U256> {
-        // For token0, calculate the difference as (next - current)
-        let n = amount
-        .checked_mul(*current_sqrt_price)?
-        .checked_mul(*next_sqrt_price)?;
+        let Q96L = *available_liquidity << 96;
+        let amount_evaluated = amount.checked_mul(*current_sqrt_price)?;
 
-        let d = n.checked_div(*available_liquidity)?;
+        //liquidity evaluatted in terms of token 1
+        let n = Q96L.checked_mul(*current_sqrt_price)?;
 
-        Some(current_sqrt_price.checked_add(d)?)
+        let d = if add {
+            Q96L.checked_add(amount_evaluated)?
+        } else {
+            Q96L.checked_sub(amount_evaluated)?
+        };
+
+        Some(n.checked_div(d)?)
     }
 
-    fn compute_swap_amount_from1(
+    fn compute_price_from1(
         amount: &U256,
         available_liquidity: &U256,
         current_sqrt_price: &U256,
+        add: bool,
     ) -> Option<U256> {
         // For token1, calculate the difference as (current - next)
-        let n = amount.checked_div(*available_liquidity)?;
+        let n = (amount << 96).checked_div(*available_liquidity)?;
         // amount_possible = available_liquidity * diff
-        Some(current_sqrt_price.checked_sub(n)?)
+
+        Some(if add {
+            current_sqrt_price.checked_add(n)?
+        } else {
+            current_sqrt_price.checked_sub(n)?
+        })
     }
 
     fn tick_price(target_tick: i32) -> Option<U256> {
@@ -539,7 +579,7 @@ impl V3Pool {
     fn update_liquidity(current: U256, net: i128) -> Option<U256> {
         let _net = U256::from(net);
 
-        if net > i128::from(0) {
+        if net < i128::from(0) {
             current.checked_sub(_net)
         } else {
             current.checked_sub(_net)
@@ -679,4 +719,3 @@ impl V3Pool {
         self.active_ticks = V3Pool::fetch_tick_data(&self.contract, &nearest_ticks).await;
     }
 }
- 
