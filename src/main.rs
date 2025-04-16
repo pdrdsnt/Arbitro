@@ -13,9 +13,9 @@ use abi::{Abi, Address};
 use arbitro::Arbitro;
 use blockchain_db::{BlockChainsModel, DexModel, TokenModel};
 use dex::{AnyDex, Dex};
-use ethers::{contract::*, prelude::*};
+use ethers::{contract::*, core::k256::elliptic_curve::consts::U2, prelude::*};
 use pair::Pair;
-use pool::V2Pool;
+use pool::{Pool, V2Pool};
 use pool_utils::AbisData;
 use std::{collections::HashMap, str::FromStr, sync::Arc};
 use token::Token;
@@ -64,25 +64,13 @@ async fn main() -> Result<(), Error> {
     let mut arbitro = Arbitro::new(_dexes,_tokens,provider,abis_arc);
     arbitro.create_pools().await;
     let last_token_address = H160::from_str(_tokens.last().unwrap().address.as_str()).unwrap();
-    //arbitro.pathfind(&last_token_address).await;
-    
-    let a = arbitro.tokens.last().unwrap().read().await;
-    let trades = a.trades(U256::from(2) << 96);
-    println!("from: {:?}", a.symbol);
-    for t in trades.iter() {
-        let m = t.0;
-        let _m = arbitro.tokens_lookup.get(&*m).unwrap();
-        let s = arbitro.tokens.get(*_m).unwrap();
-        println!("to: {:?}", s.read().await.symbol);
-        for p in t.1.iter() {
-
-            println!("{:?} {:?} {:?}", p.dex, p.version, p.fee );
-            println!("amount in: {:?}", p.amount_in);
-            println!("amount out: {:?}", p.amount_out);
-           
-        }
+    for t in _tokens {
+        arbitro.arbitrage( &H160::from_str(t.address.as_str()).unwrap(), U256::from(1) << 64).await;
     }
+   
+    //test_swap_routes(&arbitro).await.unwrap();
     Ok(())
 }
+
 
 

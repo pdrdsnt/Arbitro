@@ -9,7 +9,7 @@ use ethers::{
     contract::{Contract, ContractError},
     core::k256::elliptic_curve::{
         bigint,
-        consts::{U16, U160, U24, U25, U8},
+        consts::{U16, U160, U2, U24, U25, U8},
     },
     providers::{Http, Provider, Ws},
     types::{H160, U256},
@@ -242,7 +242,7 @@ impl V3Pool {
         let spacing = match spacing_call_result {
             Ok(spacing) => spacing,
             Err(erro) => {
-                println!("abi erro {}", erro);
+                // println!("abi erro {}", erro);
                 10
             }
         };
@@ -257,7 +257,7 @@ impl Pool for V3Pool {
     async fn update(&mut self) {
         let slot0_call_result = self
             .contract
-            .method::<(), (U256, i32, U256, U256, U256, U256, bool)>("slot0", ()); // only U256 implements detokenizable and need to be converted
+            .method::<(), (U256, i32, U256, U256, U256, U256, bool)>("slot0", ());
         match slot0_call_result {
             Ok(slot0) => {
                 let result = slot0.call_raw().await;
@@ -275,14 +275,17 @@ impl Pool for V3Pool {
                         self.x96price = x96price;
                         self.current_tick = tick;
                     }
-                    Err(erro) => println!("contract call error {}", erro),
+                    Err(_erro) => {
+                        // // println!("contract call error {}", erro);
+                    }
                 }
             }
-            Err(erro) => println!("abi erro {}", erro),
+            Err(_erro) => {
+                // // println!("abi erro {}", erro);
+            }
         }
 
-        let liquidity_call_result = self.contract.method::<(), (U256)>("liquidity", ()); // only U256 implements detokenizable and need to be converted
-
+        let liquidity_call_result = self.contract.method::<(), (U256)>("liquidity", ());
         match liquidity_call_result {
             Ok(liquidity) => {
                 let var = liquidity.call_raw().await;
@@ -291,10 +294,14 @@ impl Pool for V3Pool {
                     Ok(liquidity) => {
                         self.liquidity = liquidity;
                     }
-                    Err(erro) => println!("contract call error {}", erro),
+                    Err(_erro) => {
+                        // // println!("contract call error {}", erro);
+                    }
                 }
             }
-            Err(erro) => println!("abi erro {}", erro),
+            Err(_erro) => {
+                // // println!("abi erro {}", erro);
+            }
         }
 
         V3Pool::update_active_ticks(self).await;
@@ -302,23 +309,22 @@ impl Pool for V3Pool {
 
     fn trade(&self, amount_in: U256, from0: bool) -> Option<Trade> {
         let mut ticks = self.active_ticks.clone();
-        // Filter ticks based on the current tick and direction of the swap.
+
+        // // println!("ticks {}", ticks.len());
         if from0 {
-            ticks.retain(|&t| t.tick > self.current_tick); // ascending order
+            ticks.retain(|&t| t.tick > self.current_tick);
         } else {
             ticks.retain(|&t| t.tick < self.current_tick);
-            ticks.reverse(); // descending order
+            ticks.reverse();
         };
 
         let mut remaining_in = U256::from(amount_in);
         let mut total_out = U256::from(0);
 
-        // Save the initial price for price impact calculation.
         let x96 = U256::from_str("79228162514264337593543950336").unwrap();
         let sqrt_price_bd = &self.x96price.clone();
         let initial_sqrt_price = &sqrt_price_bd;
 
-        // Set starting state.
         let mut current_liquidity = self.liquidity;
         let mut current_tick: i32 = self.current_tick;
         let mut current_sqrt_price = *initial_sqrt_price.clone();
@@ -328,101 +334,107 @@ impl Pool for V3Pool {
             .checked_mul(fee_percent)
             .and_then(|v| v.checked_div(U256::from(1_000_000)))?;
 
-        // Apply fee to input amount (0.3% = 3000/1e6)
         let mut remaining_in = amount_in.checked_sub(fee_amount)?;
+        // // println!("starting trade for {}", self.token0.symbol);
+        // // println!("amount in {}", amount_in);
 
-        // Precompute constants for tick math
-        let TICK_BASE_NUMERATOR: U256 = U256::from(10001); // 1.0001 scaled by 1e4
+        let TICK_BASE_NUMERATOR: U256 = U256::from(10001);
         let TICK_BASE_DENOMINATOR: U256 = U256::from(10000);
-        let Q96: U256 = U256::from(1) << 96; // 2^96 in Q64.96 format
+        let Q96: U256 = U256::from(1) << 96;
+        // // println!("current tick {}", current_tick);
+        // // println!("ticks {}", ticks.len());
 
-        // Iterate over active ticks.
-        // We assume self.active_ticks are sorted in the direction of the swap.
         for tick in ticks {
-            // Calculate the next tick's sqrt price.
+            // // println!("computing next price");
             let next_sqroot_price = V3Pool::tick_price(tick.tick)?;
-            // Uniswap V3 defines: sqrtPrice = 1.0001^(tick/2) * 2^96.
-            // In relative terms, the ratio between ticks is 1.0001^((tick.tick - current_tick)/2).
+            // // println!("next price {}", next_sqroot_price);
 
-            // Compute the maximum input that can be absorbed in the current range before hitting the next tick.
-            // For a token0 swap, the exact formula is non-linear:
-            //    amount_in = liquidity * (new_sqrt - current_sqrt) / (new_sqrt * current_sqrt)
-            // Here we compute the amount needed to reach next_sqrt_price.
             let available_liquidity = current_liquidity.clone();
-            let mut ticks = self.active_ticks.clone();
-
+            // // println!("compute amount possible");
             let amount_possible = V3Pool::compute_amount_possible(
                 from0,
                 &available_liquidity,
                 &current_sqrt_price,
                 &next_sqroot_price,
             )?;
+            // // println!("amount possible {}", amount_possible);
+            // // println!("starting trade for tick {}", tick.tick);
+            // // println!("amount possible {}", amount_possible);
 
             if remaining_in < amount_possible {
-                // The remaining amount does not cross the tick boundary.
-                // Use a linear approximation to compute the output.
+                // // println!("remaining in do not cross tick");
                 let new_price = if from0 {
-                    // Δy = Δx * L / (Δx + L / P)
-                    V3Pool::compute_price_from0(
+                    // // println!("computing price from 0");
+                    let r = V3Pool::compute_price_from0(
                         &remaining_in,
                         &available_liquidity,
                         &current_sqrt_price,
                         true,
-                    )?
+                    );
+                    // // println!("price from 0 {:?}", r);
+                    r?
                 } else {
-                    V3Pool::compute_price_from1(
+                    // // println!("computing price from 1");
+                    let r = V3Pool::compute_price_from1(
                         &remaining_in,
                         &available_liquidity,
                         &current_sqrt_price,
                         true,
-                    )?
+                    );
+                    // // println!("price from 1 {:?}", r);
+                    r?
                 };
-                // Compute delta_out based on the new price for token0 or token1 swaps
+
                 if from0 {
+                    let price_diff = current_sqrt_price.checked_sub(new_price)?;
                     let delta_out = available_liquidity
-                        .checked_mul(new_price.checked_sub(current_sqrt_price)?)?;
+                        .checked_mul(price_diff)?
+                        .checked_div(U256::from(1u128 << 96))?;
                     total_out = total_out.checked_add(delta_out)?;
                 } else {
-                    let delta_num = available_liquidity
-                        .checked_mul(new_price.checked_sub(current_sqrt_price)?)?;
-                    let delta_den = current_sqrt_price.checked_mul(new_price)?;
-                    let delta_out = delta_num
+                    let inv_p_current = U256::from(1u128 << 96)
                         .checked_mul(U256::from(1u128 << 96))?
-                        .checked_div(delta_den)?;
+                        .checked_div(current_sqrt_price)?;
+
+                    let inv_p_new = U256::from(1u128 << 96)
+                        .checked_mul(U256::from(1u128 << 96))?
+                        .checked_div(new_price)?;
+
+                    let inv_diff = inv_p_current.checked_sub(inv_p_new)?;
+                    let delta_out = available_liquidity
+                        .checked_mul(inv_diff)?
+                        .checked_div(U256::from(1u128 << 96))?;
+
                     total_out = total_out.checked_add(delta_out)?;
                 }
 
-                println!("reamining in in bounds {}", remaining_in);
+                // // println!("reamining in in bounds {}", remaining_in);
                 remaining_in = U256::from(0);
                 break;
             } else {
-                // Consume the entire range up to next tick
                 let delta_out = if from0 {
-                    // Token0→token1: L * (√P_next - √P_current)
                     available_liquidity
                         .checked_mul(next_sqroot_price.checked_sub(current_sqrt_price)?)?
+                        .checked_div(U256::from(1u128 << 96))?
                 } else {
-                    // Token1→token0: L * (√P_current - √P_next) / (√P_current * √P_next)
                     let numerator = available_liquidity
-                        .checked_mul(current_sqrt_price.checked_sub(next_sqroot_price)?)?;
+                        .checked_mul(current_sqrt_price.checked_sub(next_sqroot_price)?)?
+                        .checked_mul(U256::from(1u128 << 96))?;
                     let denominator = current_sqrt_price.checked_mul(next_sqroot_price)?;
                     numerator.checked_div(denominator)?
                 };
 
                 total_out = total_out.checked_add(delta_out)?;
-                // Cross the tick: update current_tick and liquidity.
                 current_tick = tick.tick;
 
                 let liquidity_net = tick.liquidityNet;
                 if from0 {
-                    // For token0→token1 swaps, add liquidity when tick is crossed from below
                     current_liquidity = if liquidity_net > 0 {
                         current_liquidity + U256::from(liquidity_net as u128)
                     } else {
                         current_liquidity - U256::from((-liquidity_net) as u128)
                     };
                 } else {
-                    // For token1→token0 swaps, reverse direction
                     current_liquidity = if liquidity_net < 0 {
                         current_liquidity + U256::from((-liquidity_net) as u128)
                     } else {
@@ -430,28 +442,20 @@ impl Pool for V3Pool {
                     };
                 }
 
-                // Update price to next tick.
                 current_sqrt_price = next_sqroot_price;
             }
         }
 
-        // NEW: Handle precision dust (rounding errors)
-        if remaining_in < U256::from(10) {
-            // Threshold for acceptable dust
-            remaining_in = U256::zero();
-        }
-
         if remaining_in > U256::zero() {
-            println!("Remaining amount in: {}", remaining_in);
-            println!("not enough liquidity");
+            // // println!("Remaining amount in: {}", remaining_in);
+            // // println!("not enough liquidity");
         }
 
-        // Create the trade data object
+        // // println!("trade simulated in dex {} {}", self.exchange, self.version);
+        // // println!("amount_in {}", amount_in);
+        // // println!("amount_out {}", total_out);
+        // // println!("from {} to {}", self.token0.symbol, self.token1.symbol);
 
-        println!("trade simulated in dex {} {}", self.exchange, self.version);
-        println!("amount_in {}", amount_in);
-        println!("amount_out {}", total_out);
-        println!("from {} to {}", self.token0.symbol, self.token1.symbol);
         Some(Trade {
             dex: self.exchange.clone(),
             version: self.version.clone(),
@@ -460,10 +464,10 @@ impl Pool for V3Pool {
             token1: self.token1.address,
             pool: self.address,
             from0,
-            amount_in: amount_in,
+            amount_in,
             amount_out: total_out,
             price_impact: amount_in,
-            fee_amount: fee_amount, // Total fee deducted.
+            fee_amount,
             raw_price: total_out,
         })
     }
@@ -476,22 +480,52 @@ impl V3Pool {
         current_sqrt_price: &U256,
         next_sqrt_price: &U256,
     ) -> Option<U256> {
+        let Q96: U256 = U256::from(1) << 96;
+        // println!("Q96 = {}", Q96);
+
         if from0 {
-            // For token0, calculate the difference as (next - current)
+            // Token0 -> Token1: Δx = (L * Δ√P * Q96) / (sqrtP_current * sqrtP_next)
             let diff = next_sqrt_price.checked_sub(*current_sqrt_price)?;
-            if diff == U256::zero() {
+            // println!("diff (next_sqrt_price - current_sqrt_price) = {}", diff);
+
+            if diff.is_zero() {
+                // println!("diff is zero; returning None");
                 return None;
             }
-            // amount_possible = (available_liquidity * diff) / (next_sqrt_price * current_sqrt_price)
-            Some(available_liquidity * diff / (next_sqrt_price * current_sqrt_price))
+
+            let denom = current_sqrt_price.checked_mul(*next_sqrt_price)?;
+            // println!("denom (current_sqrt_price * next_sqrt_price) = {}", denom);
+
+            // Multiply L * Δ√P first.
+            let liquidity_mul_diff = available_liquidity.checked_mul(diff)?;
+            // println!("available_liquidity * diff = {}", liquidity_mul_diff);
+
+            // Divide by denom.
+            let scaled = liquidity_mul_diff.checked_div(denom >> 96)?;
+            // println!("scaled ( (L * diff) / denom >> 96 ) = {}", scaled);
+
+            // Multiply by Q96.
+            let result = scaled;
+            // println!("result (scaled * Q96) = {}", result);
+
+            Some(result)
         } else {
-            // For token1, calculate the difference as (current - next)
+            // Token1 -> Token0: Δy = (L * Δ√P) / Q96
             let diff = current_sqrt_price.checked_sub(*next_sqrt_price)?;
-            if diff == U256::zero() {
+            // println!("diff (current_sqrt_price - next_sqrt_price) = {}", diff);
+
+            if diff.is_zero() {
+                // println!("diff is zero; returning None");
                 return None;
             }
-            // amount_possible = available_liquidity * diff
-            Some(available_liquidity * diff)
+
+            let liquidity_mul_diff = available_liquidity.checked_mul(diff)?;
+            // println!("available_liquidity * diff = {}", liquidity_mul_diff);
+
+            let result = liquidity_mul_diff.checked_div(Q96)?;
+            // println!("result ( (L * diff) / Q96 ) = {}", result);
+
+            Some(result)
         }
     }
 
@@ -501,19 +535,33 @@ impl V3Pool {
         current_sqrt_price: &U256,
         add: bool,
     ) -> Option<U256> {
-        let Q96L = *available_liquidity << 96;
-        let amount_evaluated = amount.checked_mul(*current_sqrt_price)?;
+        // Debug prints (optional)
+        // println!("Inputs:");
+        // println!("  Δx (amount): {}", amount);
+        // println!("  L (liquidity): {}", available_liquidity);
+        // println!("  √P (current_sqrt_price): {}", current_sqrt_price);
 
-        //liquidity evaluatted in terms of token 1
-        let n = Q96L.checked_mul(*current_sqrt_price)?;
+        // Step 1: Compute L << 96 (Q96L)
+        let Q96L = available_liquidity << (96);
+        // println!("Q96L (L << 96): {}", Q96L);
 
-        let d = if add {
-            Q96L.checked_add(amount_evaluated)?
+        // Step 2: Compute (L << 96) / √P (scaled_liquidity)
+        let scaled_liquidity = Q96L.checked_div(*current_sqrt_price)?;
+        // println!("scaled_liquidity (Q96L / √P): {}", scaled_liquidity);
+
+        // Step 3: Compute denominator = scaled_liquidity ± Δx
+        let denominator = if add {
+            scaled_liquidity.checked_add(*amount)?
         } else {
-            Q96L.checked_sub(amount_evaluated)?
+            scaled_liquidity.checked_sub(*amount)?
         };
+        // println!("denominator (scaled_liquidity ± Δx): {}", denominator);
 
-        Some(n.checked_div(d)?)
+        // Step 4: Compute new_sqrt_price = Q96L / denominator
+        let new_sqrt_price = Q96L.checked_div(denominator)?;
+        // println!("new_sqrt_price (Q96L / denominator): {}", new_sqrt_price);
+
+        Some(new_sqrt_price)
     }
 
     fn compute_price_from1(
@@ -532,50 +580,140 @@ impl V3Pool {
             current_sqrt_price.checked_sub(n)?
         })
     }
-
     fn tick_price(target_tick: i32) -> Option<U256> {
-        // Calculate 1.0001^tick using integer math
-        let abs_tick = target_tick.unsigned_abs();
-        let mut ratio = U256::from(1);
+        const MAX_TICK: i32 = 887272;
+        let abs_tick = target_tick.unsigned_abs() as u32;
 
-        // 1.0001 in Q128 format (1.0001 * 2^128)
-        // Calculate 1.0001 in Q128 format using safe operations
-        let base = (U256::from(10001u64) << 128) / U256::from(10000u64);
+        // Validate tick range
+        if abs_tick > MAX_TICK as u32 {
+            eprintln!(
+                "[0] Tick {} exceeds maximum allowed (±{})",
+                target_tick, MAX_TICK
+            );
+            return None;
+        }
 
-        // Use exponentiation by squaring
-        let mut n = abs_tick;
-        let mut current = base;
-        while n > 0 {
-            if n % 2 == 1 {
-                // Multiply by base only when needed
-                ratio = ratio.checked_mul(current)?;
+        let mut ratio = if abs_tick & 0x1 != 0 {
+            U256::from_dec_str("255706422905421325395407485534392863200").unwrap()
+        } else {
+            U256::from(1) << 128
+        };
+
+        // Precomputed magic numbers from Uniswap V3
+        let magic_numbers = [
+            (
+                0x2,
+                U256::from_dec_str("255706422905421325395407485534392863200").unwrap(),
+            ),
+            (
+                0x4,
+                U256::from_dec_str("255223438104885656517683320344580614584").unwrap(),
+            ),
+            (
+                0x8,
+                U256::from_dec_str("254322734553735582512512255949976165369").unwrap(),
+            ),
+            (
+                0x10,
+                U256::from_dec_str("250846047417607353339794883300939388931").unwrap(),
+            ),
+            (
+                0x20,
+                U256::from_dec_str("234435455086227615880830483505416481938").unwrap(),
+            ),
+            (
+                0x40,
+                U256::from_dec_str("191204177664095573937843702857003287777").unwrap(),
+            ),
+            (
+                0x80,
+                U256::from_dec_str("115165952705265534866474743471916972268").unwrap(),
+            ),
+            (
+                0x100,
+                U256::from_dec_str("29287344681543793554040907002057611822").unwrap(),
+            ),
+            (
+                0x200,
+                U256::from_dec_str("3868562622766813359059763198240802791").unwrap(),
+            ),
+            (
+                0x400,
+                U256::from_dec_str("170141183460469231731687303715884105728").unwrap(),
+            ),
+            (
+                0x800,
+                U256::from_dec_str("170408874814886611515626254292199532339").unwrap(),
+            ),
+            (
+                0x1000,
+                U256::from_dec_str("177803588050028359909546862144531250000").unwrap(),
+            ),
+            (
+                0x2000,
+                U256::from_dec_str("215416728668509908758128906250000000000").unwrap(),
+            ),
+            (
+                0x4000,
+                U256::from_dec_str("340265210418746478515625000000000000000").unwrap(),
+            ),
+            (
+                0x8000,
+                U256::from_dec_str("844815322999501822113930908203125000000").unwrap(),
+            ),
+            (
+                0x10000,
+                U256::from_dec_str("366325949420163452428643381347626447728").unwrap(),
+            ),
+            (
+                0x20000,
+                U256::from_dec_str("142576269300693600730609870735819320320").unwrap(),
+            ),
+            (
+                0x40000,
+                U256::from_dec_str("435319348045928502739365042735923241779").unwrap(),
+            ),
+            (
+                0x80000,
+                U256::from_dec_str("366325949420163452428643381347626447728").unwrap(),
+            ),
+        ];
+
+        for (mask, magic) in magic_numbers.iter() {
+            if abs_tick & mask != 0 {
+                ratio = match ratio.checked_mul(*magic) {
+                    Some(v) => v >> 128,
+                    None => {
+                        eprintln!(
+                            "[1] Multiplication overflow at tick {} (mask: {:x})",
+                            target_tick, mask
+                        );
+                        return None;
+                    }
+                };
             }
-            //sqr base
-            current = current.checked_mul(current)?;
-            // Divide by 2 exponent
-            n /= 2;
         }
-
-        // Adjust for negative ticks
+        let max_value = U256::max_value();
+        // Handle negative ticks
         if target_tick < 0 {
-            ratio = U256::MAX / ratio;
+            ratio = match U256::max_value().checked_div(ratio) {
+                Some(v) => v,
+                None => {
+                    eprintln!("[2] Division overflow for negative tick {}", target_tick);
+                    return None;
+                }
+            };
         }
 
-        // Calculate square root using Babylonian method
-        let mut sqrt_ratio = ratio;
-        let mut x = ratio;
-        //first step
-        let mut y = (x + U256::one()) >> 1;
-        while y < x {
-            x = y;
-            y = (x + ratio / x) >> 1;
-        }
-        sqrt_ratio = x;
-
-        // Convert to Q64.96 format (sqrt(ratio) * 2^96)
-        sqrt_ratio.checked_mul(U256::from(2u128.pow(96)))
+        // Convert to Q64.96 format
+        let sqrt_price_x96 = (ratio >> 32)
+            + (if (ratio % (U256::from(1) << 32) == U256::from(0)) {
+                U256::from(0)
+            } else {
+                U256::from(1)
+            });
+        Some(sqrt_price_x96)
     }
-
     fn update_liquidity(current: U256, net: i128) -> Option<U256> {
         let _net = U256::from(net);
 
@@ -594,7 +732,7 @@ impl V3Pool {
             match Self::fetch_bitmap_word(contract, idx as i16).await {
                 Ok(word) => Some((idx, word)), // Store the result if successful
                 Err(_) => {
-                    println!("Failed to fetch word for index {}", idx);
+                    // println!("Failed to fetch word for index {}", idx);
                     None
                 }
             }
@@ -620,101 +758,88 @@ impl V3Pool {
         contract: &Contract<Provider<Ws>>,
         current_tick: i32,
         tick_spacing: i32,
-        max_ticks: usize,
     ) -> Vec<i32> {
         let normalized_tick = current_tick.div_euclid(tick_spacing);
         let current_word_idx = normalized_tick.div_euclid(256);
-        let current_bit_idx = normalized_tick.rem_euclid(256);
-
-        let search_radius = ((max_ticks as f32 / 256.0).ceil() as i32).max(1);
-        let word_indices: Vec<i32> = (-search_radius..=search_radius)
+        let range = 1;
+        // Generate word indices to check (-16 to +16 words from current)
+        let word_indices: Vec<i32> = (-range..=range)
             .map(|offset| current_word_idx + offset)
             .collect();
 
         let word_map = Self::fetch_bitmap_words(contract, &word_indices).await;
 
-        let mut ticks = Vec::with_capacity(max_ticks);
-        let mut checked_bits = HashSet::new();
-        let mut queue = VecDeque::new();
-        queue.push_back((current_word_idx, current_bit_idx as i32));
+        let mut ticks = Vec::new();
 
-        while let Some((word_idx, bit_idx)) = queue.pop_front() {
-            if ticks.len() >= max_ticks {
-                break;
-            }
-            if !checked_bits.insert((word_idx, bit_idx)) {
+        // DIRECTLY ITERATE THROUGH ALL WORDS AND BITS
+        for (&word_idx, bitmap) in word_map.iter() {
+            if bitmap.is_zero() {
                 continue;
             }
 
-            println!("Checking word index: {}, bit index: {}", word_idx, bit_idx);
-
-            if let Some(word) = word_map.get(&word_idx) {
-                if word.bitand(U256::from(1) << bit_idx) != U256::zero() {
-                    let tick = (word_idx * 256 + bit_idx) * tick_spacing;
+            // Check all 256 bits in parallel
+            for bit_idx in 0..256 {
+                if bitmap.bit(bit_idx) {
+                    let normalized = (word_idx * 256) + bit_idx as i32;
+                    let tick = normalized * tick_spacing;
                     ticks.push(tick);
-                    println!("Found tick: {}", tick);
-                }
-            }
-
-            // Expand within the same word
-            if bit_idx > 0 && checked_bits.insert((word_idx, bit_idx - 1)) {
-                queue.push_back((word_idx, bit_idx - 1));
-            }
-            if bit_idx < 255 && checked_bits.insert((word_idx, bit_idx + 1)) {
-                queue.push_back((word_idx, bit_idx + 1));
-            }
-
-            // Expand to adjacent words if needed
-            if bit_idx == 0 {
-                if let Some(_) = word_map.get(&(word_idx - 1)) {
-                    queue.push_back((word_idx - 1, 255));
-                }
-            }
-            if bit_idx == 255 {
-                if let Some(_) = word_map.get(&(word_idx + 1)) {
-                    queue.push_back((word_idx + 1, 0));
                 }
             }
         }
 
-        ticks.sort();
-        ticks.truncate(max_ticks);
+        // Sort by proximity to current tick
+        ticks.sort_by_key(|&t| (t - current_tick).abs());
         ticks
     }
 
-    /// Fetch tick data for a given list of ticks.
     async fn fetch_tick_data(contract: &Contract<Provider<Ws>>, ticks: &[i32]) -> Vec<Tick> {
-        let mut active_ticks = Vec::new();
-
-        for &tick in ticks {
-            match contract.method::<_, (i128, i128, U256, U256, i64)>("ticks", tick) {
-                Ok(call) => match call.call().await {
-                    Ok((liquidity_net, _, _, _, _)) => {
-                        active_ticks.push(Tick {
-                            tick,
-                            liquidityNet: liquidity_net,
-                        });
+        let tick_futures = ticks
+            .iter()
+            .map(|&tick| {
+                // Create an async block for each tick
+                async move {
+                    // Setup the method call for the tick.
+                    match contract
+                        .method::<_, (u128, i128, U256, U256, i64, U256, u32, bool)>("ticks", tick)
+                    {
+                        Ok(call) => {
+                            // Await the call
+                            match call.call_raw().await {
+                                Ok((_, liquidity_net, _, _, _, _, _, _)) => {
+                                    // println!("fetching tick {}", tick);
+                                    Some(Tick {
+                                        tick,
+                                        liquidityNet: liquidity_net,
+                                    })
+                                }
+                                Err(err) => {
+                                    // println!("Error fetching tick data for {}: {}", tick, err);
+                                    None
+                                }
+                            }
+                        }
+                        Err(err) => {
+                            // println!("Method call setup failed for tick {}: {}", tick, err);
+                            None
+                        }
                     }
-                    Err(err) => {
-                        println!("Error fetching tick data for {}: {}", tick, err);
-                    }
-                },
-                Err(err) => {
-                    println!("Method call setup failed for tick {}: {}", tick, err);
                 }
-            }
-        }
-        active_ticks
+            })
+            .collect::<Vec<_>>();
+
+        // Execute all futures concurrently.
+        let tick_results = join_all(tick_futures).await;
+
+        // Filter out any results that failed (returned None)
+        tick_results
+            .into_iter()
+            .filter_map(|result| result)
+            .collect()
     }
 
     async fn update_active_ticks(&mut self) {
-        let nearest_ticks = V3Pool::find_nearest_ticks(
-            &self.contract,
-            self.current_tick,
-            self.tick_spacing,
-            10, // Find 6 nearest ticks (3 prev, 3 next).
-        )
-        .await;
+        let nearest_ticks =
+            V3Pool::find_nearest_ticks(&self.contract, self.current_tick, self.tick_spacing).await;
 
         self.active_ticks = V3Pool::fetch_tick_data(&self.contract, &nearest_ticks).await;
     }

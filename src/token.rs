@@ -2,7 +2,7 @@ use core::f32;
 use std::{
     collections::{HashMap, HashSet},
     i32,
-    sync::Arc,
+    sync::Arc, time::{Duration, Instant},
 };
 
 use bigdecimal::BigDecimal;
@@ -10,7 +10,7 @@ use ethers::{
     contract::Contract,
     core::k256::sha2::digest::Output,
     providers::{Provider, Ws},
-    types::{H160,U256},
+    types::{H160, U256},
 };
 use graph::graph::IntoConnections;
 use num_traits::{real::Real, FromPrimitive, ToPrimitive};
@@ -55,7 +55,7 @@ impl Token {
     }
 
     pub async fn add_pool(&mut self, pool: Arc<RwLock<AnyPool>>, is0: bool) {
-        println!("add pool called on token");
+       
         let pool_read = pool.read().await;
         let pool_tokens = pool_read.get_tokens();
         let pool_dir = PoolDir::new(pool.clone(), is0);
@@ -77,51 +77,76 @@ impl Token {
             }
         };
 
-        println!("added pool {} to token {} {}", &pool_address, self.name, self.address);
-        println!("other node: {}", other_node);
-        println!("new pools by pair: ");
-        for p in &self.pools_by_pair {
-            println!("other token: {}", p.0);
-            println!("pools {}", p.1.iter().map(|h| h.to_string()).collect::<Vec<String>>().join(", "));
-        }
-        self.pools.entry(pool_address).and_modify(|existing| {
-            *existing = pool_dir.clone();
-        }).or_insert(pool_dir);
+        println!(
+            "added pool {} to token {} {} from0: {}",
+            &pool_address, self.name, self.address, is0
+        );
+        
+        self.pools
+            .entry(pool_address)
+            .and_modify(|existing| {
+                *existing = pool_dir.clone();
+            })
+            .or_insert(pool_dir);
     }
 
     pub async fn update_pools(&mut self) {}
 
     pub fn trades(&self, input: U256) -> HashMap<H160, Vec<Trade>> {
-        let mut Output = HashMap::new();
+        let mut output = HashMap::new();
+        let timeout = Duration::from_secs(2); // Adjust as needed
 
-        let mut best_amount = 0.0;
         for (_, pool_dir) in &self.pools {
-            let pool_read = pool_dir.pool.try_read().unwrap();
-           
-            println!("trying trade in: {:?} {:?} {:?}", pool_read.get_dex(), pool_read.get_version(), pool_read.get_fee());
+            let pool_arc: Arc<RwLock<AnyPool>> = Arc::clone(&pool_dir.pool);
+            let start = Instant::now();
+            let mut pool_read = None;
+
+            // Attempt to acquire read lock with timeout
+            while Instant::now().duration_since(start) < timeout {
+                if let Ok(guard) = pool_arc.try_read() {
+                    pool_read = Some(guard);
+                    break;
+                }
+                std::thread::sleep(Duration::from_millis(10)); // Backoff
+            }
+
+            let pool_read = match pool_read {
+                Some(guard) => guard,
+                None => {
+                    println!("Timeout acquiring lock for pool");
+                    continue;
+                }
+            };
+            // Debug logging (consider using log crate for production)
+            println!(
+                "trying trade in: {:?} {:?} {:?}",
+                pool_read.get_dex(),
+                pool_read.get_version(),
+                pool_read.get_fee()
+            );
+
             if let Some(trade_data) = pool_read.trade(input, pool_dir.is0) {
-                let b = if trade_data.from0 {
+                // Determine output token address
+                let output_token = if trade_data.from0 {
                     trade_data.token1.clone()
                 } else {
                     trade_data.token0.clone()
                 };
-                Output
-                    .entry(b)
-                    .and_modify(|x: &mut Vec<Trade>| x.push(trade_data.clone()))
-                    .or_insert(vec![trade_data.clone()]);
+
+                // Entry API with reference to avoid cloning
+                output
+                    .entry(output_token)
+                    .or_insert_with(Vec::new)
+                    .push(trade_data);
             }
         }
 
-        // Sort each vector by descending amount_out
-        for trades in Output.values_mut() {
-            trades.sort_by(|a, b| {
-                // Convert amount_out to f32 for comparison if needed
-                let a_amt = a.amount_out.to_string().parse::<f32>().unwrap();
-                let b_amt = b.amount_out.to_string().parse::<f32>().unwrap();
-                b_amt.partial_cmp(&a_amt).unwrap() // Descending order: biggest first
-            });
+        // Sort trades by descending amount_out using U256's native comparison
+        for trades in output.values_mut() {
+            trades.sort_by(|a, b| b.amount_out.cmp(&a.amount_out));
         }
-        Output
+
+        output
     }
 
     pub fn best_trade(&self, input: U256) -> Option<Trade> {
@@ -131,11 +156,11 @@ impl Token {
             let pool_read = pool.pool.blocking_read();
             match pool_read.trade(input, pool.is0) {
                 Some(_trade) => {
-                        if _trade.amount_out > bigger_out {
-                            bigger_out = _trade.amount_out.clone();
-                            trade = Some(_trade);
-                        }
-                },
+                    if _trade.amount_out > bigger_out {
+                        bigger_out = _trade.amount_out.clone();
+                        trade = Some(_trade);
+                    }
+                }
                 None => (),
             };
         }

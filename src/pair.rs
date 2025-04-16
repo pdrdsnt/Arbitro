@@ -4,13 +4,13 @@ use crate::token::Token;
 
 #[derive(Clone, Debug)]
 pub struct Pair {
-    pub a: Token,
-    pub b: Token,
+    pub a: H160,
+    pub b: H160,
 }
 
 impl Pair {
-    pub fn new(token1: Token, token2: Token) -> Self {
-        if token1.address < token2.address {
+    pub fn new(token1: H160, token2: H160) -> Self {
+        if token1 < token2 {
             Pair { a: token1, b: token2 }
         } else {
             Pair { a: token2, b: token1 }
@@ -20,7 +20,7 @@ impl Pair {
 
 impl PartialEq for Pair {
     fn eq(&self, other: &Self) -> bool {
-        self.a.address == other.a.address && self.b.address == other.b.address
+        self.a == other.a && self.b == other.b
     }
 }
 
@@ -28,13 +28,13 @@ impl Eq for Pair {}
 
 impl Hash for Pair {
     fn hash<H: Hasher>(&self, state: &mut H) {
-        self.a.address.hash(state);
-        self.b.address.hash(state);
+        self.a.hash(state);
+        self.b.hash(state);
     }
 }
 
 impl From<Pair> for String {
     fn from(val: Pair) -> Self {
-        format!("{}{}", val.a.address, val.b.address)
+        format!("{}{}", val.a, val.b)
     }
 }

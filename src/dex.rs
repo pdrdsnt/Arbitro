@@ -11,7 +11,7 @@ use tokio::sync::RwLock;
 use crate::{
     pair::Pair,
     pool::{V2Pool, V3Pool},
-    pool_utils::{AbisData, AnyPool},
+    pool_utils::{AbisData, AnyPool}, token::Token,
 };
 
 pub struct Dex {
@@ -53,7 +53,7 @@ impl AnyDex {
         }
     }
 
-    pub async fn get_pool(&mut self, pair: Pair, fee: u32) -> Option<Arc<RwLock<AnyPool>>> {
+    pub async fn get_pool(&mut self, pair: Pair, tkns: &Vec<Arc<RwLock<Token>>>, tokens_lookup: &HashMap<H160, usize>, fee: u32) -> Option<Arc<RwLock<AnyPool>>> {
         let a = pair.a.clone();
         let b = pair.b.clone();
         match self {
@@ -64,7 +64,7 @@ impl AnyDex {
                 }
                 let method = dex
                     .factory
-                    .method::<(H160, H160), H160>("getPair", (a.address, b.address))
+                    .method::<(H160, H160), H160>("getPair", (a, b))
                     .unwrap();
 
                 // Send the transaction and await the response
@@ -84,6 +84,15 @@ impl AnyDex {
 
                     let dex_name = dex.name.clone();
 
+                    let token0_index = tokens_lookup
+                        .get(&a)
+                        .unwrap_or_else(|| panic!("Token {} not found", a));
+                    let token1_index = tokens_lookup
+                        .get(&b)
+                        .unwrap_or_else(|| panic!("Token {} not found", b));
+
+                    let token0 = tkns[*token0_index].clone();
+                    let token1 = tkns[*token1_index].clone();
                     //v2 pool only one fee
                     //fee should depend on dex data because some dex have fees other than 3000
                     let v2_pool = V2Pool::new_with_update(
@@ -91,8 +100,8 @@ impl AnyDex {
                         "v2".to_string(),
                         3000,
                         address,
-                        a,
-                        b,
+                        token0.read().await.clone(),
+                        token1.read().await.clone(),
                         v2_pool_contract,
                     )
                     .await;
@@ -115,7 +124,7 @@ impl AnyDex {
             AnyDex::V3(dex, v3_pool_abi_ethers) => {
                 let method = match dex
                     .factory
-                    .method::<(H160, H160, u32), H160>("getPool", (a.address, b.address, fee))
+                    .method::<(H160, H160, u32), H160>("getPool", (a, b, fee))
                 {
                     Ok(v) => v,
                     Err(err) => {
@@ -124,6 +133,8 @@ impl AnyDex {
                         return None;
                     }
                 };
+
+
 
                 if let Ok(address) = method.call_raw().await {
                     let v3_pool_contract = Contract::new(
@@ -139,10 +150,21 @@ impl AnyDex {
                     else {
                         println!("pool address {}", address);
                     }
+
+                    let token0_index = tokens_lookup
+                    .get(&a)
+                    .unwrap_or_else(|| panic!("Token {} not found", a));
+                let token1_index = tokens_lookup
+                    .get(&b)
+                    .unwrap_or_else(|| panic!("Token {} not found", b));
+
+                let token0 = tkns[*token0_index].clone();
+                let token1 = tkns[*token1_index].clone();
+
                     let v3_pool = V3Pool::new_with_update(
                         address,
-                        a,
-                        b,
+                        token1.read().await.clone(),
+                        token0.read().await.clone(),
                     dex.name.to_string(),
                         "v3".to_string(),
                         fee,
