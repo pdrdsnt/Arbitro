@@ -25,9 +25,8 @@ use tokio::{sync::RwLock, time::error::Error};
 async fn main() -> Result<(), Error> {
 
     let provider = Arc::new(
-        Provider::<Ws>::connect("wss://bsc-rpc.publicnode.com")
+        Provider::<Http>::connect("https://bsc.blockrazor.xyz")
             .await
-            .unwrap(),
     );
     let chains_data = BlockChainsModel::new("src/chainsData.json").unwrap();
     let _dexes = &chains_data.chains[0].dexes;

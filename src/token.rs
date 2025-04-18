@@ -2,14 +2,15 @@ use core::f32;
 use std::{
     collections::{HashMap, HashSet},
     i32,
-    sync::Arc, time::{Duration, Instant},
+    sync::Arc,
+    time::{Duration, Instant},
 };
 
 use bigdecimal::BigDecimal;
 use ethers::{
     contract::Contract,
     core::k256::sha2::digest::Output,
-    providers::{Provider, Ws},
+    providers::{Http, Provider, Ws},
     types::{H160, U256},
 };
 use graph::graph::IntoConnections;
@@ -29,7 +30,7 @@ pub struct Token {
     pub address: H160,
     pub symbol: String,
     pub decimals: u8,
-    pub contract: Contract<Provider<Ws>>,
+    pub contract: Contract<Provider<Http>>,
     pub pools: HashMap<H160, PoolDir>,
     pub pools_by_pair: HashMap<H160, HashSet<H160>>,
 }
@@ -40,7 +41,7 @@ impl Token {
         address: H160,
         symbol: String,
         decimals: u8,
-        contract: Contract<Provider<Ws>>,
+        contract: Contract<Provider<Http>>,
         pools: HashMap<H160, PoolDir>,
     ) -> Self {
         Token {
@@ -55,7 +56,6 @@ impl Token {
     }
 
     pub async fn add_pool(&mut self, pool: Arc<RwLock<AnyPool>>, is0: bool) {
-       
         let pool_read = pool.read().await;
         let pool_tokens = pool_read.get_tokens();
         let pool_dir = PoolDir::new(pool.clone(), is0);
@@ -64,6 +64,21 @@ impl Token {
         let pool_address = match &*pool_read {
             AnyPool::V2(v2_pool) => v2_pool.address.clone(),
             AnyPool::V3(v3_pool) => v3_pool.address.clone(),
+        };
+
+        let pool_version = match &*pool_read {
+            AnyPool::V2(v2_pool) => v2_pool.version.clone(),
+            AnyPool::V3(v3_pool) => v3_pool.version.clone(),
+        };
+
+        let pool_name = match &*pool_read {
+            AnyPool::V2(v2_pool) => v2_pool.exchange.clone(),
+            AnyPool::V3(v3_pool) => v3_pool.exchange.clone(),
+        };
+
+        let pool_fee = match &*pool_read {
+            AnyPool::V2(v2_pool) => v2_pool.fee.clone(),
+            AnyPool::V3(v3_pool) => v3_pool.fee.clone(),
         };
 
         match self.pools_by_pair.get_mut(&other_node) {
@@ -78,10 +93,10 @@ impl Token {
         };
 
         println!(
-            "added pool {} to token {} {} from0: {}",
-            &pool_address, self.name, self.address, is0
+            "added pool {} {} {} {} to token {} {} from0: {}",
+            &pool_address, pool_name, pool_version, pool_fee, self.name, self.address, is0
         );
-        
+
         self.pools
             .entry(pool_address)
             .and_modify(|existing| {

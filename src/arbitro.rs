@@ -3,7 +3,7 @@ use ethers::{
     abi::{token, Tokenizable},
     contract::Contract,
     core::k256::elliptic_curve::consts::{U20, U32},
-    providers::{Provider, Ws},
+    providers::{Http, Provider, Ws},
     types::{H160, U256},
     utils::hex::ToHex,
 };
@@ -52,7 +52,7 @@ impl Arbitro {
     pub fn new(
         dexes_data: &Vec<DexModel>,
         tokens_data: &Vec<TokenModel>,
-        provider: Arc<Provider<Ws>>,
+        provider: Arc<Provider<Http>>,
         abis: Arc<AbisData>,
     ) -> Self {
         let mut arbitro: Arbitro = Arbitro {
@@ -72,7 +72,7 @@ impl Arbitro {
     fn create_dexes(
         &mut self,
         dexes_data: &Vec<DexModel>,
-        provider: Arc<Provider<Ws>>,
+        provider: Arc<Provider<Http>>,
         abis: Arc<AbisData>,
     ) {
         let mut dexes = Vec::<AnyDex>::new();
@@ -90,6 +90,7 @@ impl Arbitro {
                     name: dexes_data[i].dex_name.clone(),
                     factory: contract,
                     pools: HashMap::new(),
+                    pools_by_address: HashMap::new(),
                 };
                 let dex_data = AnyDex::V2(dex, abis.clone());
                 maybe_dex_data = Some(dex_data);
@@ -102,6 +103,7 @@ impl Arbitro {
                     name: dexes_data[i].dex_name.clone(),
                     factory: contract,
                     pools: HashMap::new(),
+                    pools_by_address: HashMap::new(),
                 };
                 let dex_data = AnyDex::V3(dex, abis.clone());
                 maybe_dex_data = Some(dex_data);
@@ -121,7 +123,7 @@ impl Arbitro {
     fn create_tokens(
         &mut self,
         tokens_data: &Vec<TokenModel>,
-        provider: Arc<Provider<Ws>>,
+        provider: Arc<Provider<Http>>,
         abis: Arc<AbisData>,
     ) {
         let mut addresses = Vec::new();
@@ -192,10 +194,9 @@ impl Arbitro {
 
                 let pair = Pair::new(token0_clone.address, token1_clone.address);
 
-                let fees = vec![1000, 3000, 500, 10000];
-
                 for dex in &mut self.dexes {
-                    for fee in &fees {
+                    let supported_fees: Vec<_> = dex.supported_fees().iter().cloned().collect();
+                    for fee in supported_fees {
                         if let Some(pool) = dex
                             .get_pool(pair.clone(), &self.tokens, &self.tokens_lookup, fee.clone())
                             .await
@@ -216,203 +217,177 @@ impl Arbitro {
         println!("Iniciando busca de caminhos...");
         self.arbitrage(from, ethers::types::U256::from(10000)).await;
     }
-
-    pub async fn arbitrage(&mut self, from: &H160, amount_in: ethers::types::U256) {
-        print!("Iniciando arbitragem...");
-        println!("Token de origem: {}", from);
-        print!("=========================");
-        println!("==========================");
-
-        let connected_nodes = self.find_return_paths(from,4).await;
-        let mut all_paths: HashMap<H160, Vec<Vec<H160>>> = self.update_paths(from).await;
-        println!("Caminhos de retorno atualizados");
-
-        let mut paths: BinaryHeap<(ethers::types::U256, [Vec<Trade>; 2])> = BinaryHeap::new();
-        for (node,path) in connected_nodes {
-            println!("connected {} ---> {:?}", from, node);
-            if let Some((pool_address, trade_foward)) =
-                self.select_pool(from, &node, amount_in).await
+    pub async fn arbitrage(&mut self, from: &H160, amount_in: U256) {
+        let forward_paths = self.find_foward_paths(from).await;
+        let mut profitable_paths = Vec::new();
+        println!(
+            "initializing arbitrage for {:?}",
+            self.get_symbol(from).await
+        );
+        for foward_paths in &forward_paths.get(&*from) {
+            println!("--------------");
+            println!(
+                "procurando caminhos melhor ciclo para {} -> ",
+                self.get_symbol(from).await
+            );
+            println!("--------------");
+            if let Some((best_foward, foward_amount)) =
+                self.select_best_foward(foward_paths, amount_in).await
             {
-                println!(
-                    "foward trade encontrado: {} {} -> {}: {} from0: {} on pool {}",
-                    trade_foward.amount_in,
-                    trade_foward.token0,
-                    trade_foward.token1,
-                    trade_foward.amount_out,
-                    trade_foward.from0,
-                    trade_foward.pool
-                );
-                if let Some(return_paths) = all_paths.get(&node) {
-                    
-                    let (mut path_backward, best_value) = self
-                        //amount out is input for the backward trade
-                        .select_path(&return_paths, trade_foward.amount_out)
-                        .await;
-
-                    println!("Caminho de retorno encontrado para no {:?}", node);
-
-                    for t in path_backward.iter_mut() {
-                        println!(
-                            "backward trade encontrado: {} {} -> {}: {} from0: {} on pool {}",
-                            t.amount_in, t.token0, t.token1, t.amount_out, t.from0, t.pool
-                        );
+                let return_amount = match best_foward.last() {
+                    Some(amount) => amount.amount_out,
+                    None => {
+                        println!("Nenhum valor retornado");
+                        continue;
                     }
-                    let full_path: [Vec<Trade>; 2] = [vec![trade_foward], path_backward.clone()];
-                    let last_trade = match path_backward.last() {
-                        Some(v) => v.amount_out,
-                        None => {
-                            println!("last trade não encontrado");
-                            continue;
-                        }
-                    };
-                    paths.push((last_trade, full_path));
+                };
 
-                    println!(
-                        "Valor total: {}",
-                        if last_trade > amount_in {
-                            last_trade - amount_in
-                        } else {
-                            amount_in - last_trade
-                        }
-                    );
+                self.print_path("path: ", &best_foward).await;
+                let profit = return_amount.checked_sub(amount_in);
+                if profit.is_some() {
+                    profitable_paths.push((profit.unwrap(), best_foward));
+                    println!("Profit found: {}", profit.unwrap());
                 } else {
-                    println!("Nenhum caminho de retorno encontrado para o nó {}", node);
+                    let p = amount_in.saturating_sub(return_amount);
+                    println!("No profit found: -{}", p);
                 }
-            } else {
-                println!("Nenhuma pool encontrada para o nó {}", node);
             }
         }
-        println!("inicializacao conclioda");
-        println!("=========================");
-        println!("==========================");
-        while let Some((value, path)) = paths.pop() {
-            let last_trade = path[1].last().unwrap();
-            let last_node = if last_trade.from0 {
-                last_trade.token1
-            } else {
-                last_trade.token0
-            };
 
-            if value > amount_in {
-                println!(
-                    "Arbitragem lucrativa encontrada! Lucro: {}",
-                    match value.checked_sub(amount_in) {
-                        Some(v) => v,
-                        None => {
-                            println!("Valor negativo");
-                            continue;
-                        }
-                    }
-                );
-            } else {
-                let value = amount_in - value;
-                println!("Valor negativo -{}", value);
+        // self.process_profitable_paths(profitable_paths).await;
+    }
+
+    async fn select_best_foward(
+        &mut self,
+        paths: &[Vec<H160>],
+        amount_in: U256,
+    ) -> Option<(Vec<Trade>, U256)> {
+        let mut best_amount = U256::zero();
+        let mut best_path = Vec::new();
+
+        for path in paths {
+            let (trades, amount_out) = self.calculate_path(path, amount_in).await;
+            if amount_out > best_amount {
+                best_amount = amount_out;
+                best_path = trades;
             }
+        }
 
-            println!("start amount: {} end amount: {}", amount_in, value);
-            let start_token_idx = match self.tokens_lookup.get(from) {
-                Some(x) => x,
-                None => {
-                    println!("Token não encontrado");
-                    continue;
-                }
-            };
-            let start_token = self.tokens[*start_token_idx].read().await;
+        if best_amount > U256::zero() {
+            Some((best_path, best_amount))
+        } else {
+            None
+        }
+    }
 
-            println!("path foward");
+    async fn select_best_return(
+        &mut self,
+        paths: Vec<Vec<H160>>,
+        amount_in: U256,
+    ) -> Option<(Vec<Trade>, U256)> {
+        let mut best_amount = U256::zero();
+        let mut best_path = Vec::new();
 
-            for t in &path[0] {
-                println!(
-                    "DEBUG: from0 = {}, token0 = {:?}, token1 = {:?}",
-                    t.from0, t.token0, t.token1
-                );
-
-                let end_token0_idx = match self.tokens_lookup.get(&t.token0) {
-                    Some(x) => x,
-                    None => {
-                        println!("Token não encontrado");
-                        continue;
-                    }
-                };
-                let end_token0 = self.tokens[*end_token0_idx].read().await;
-
-                let end_token1_idx = match self.tokens_lookup.get(&t.token1) {
-                    Some(x) => x,
-                    None => {
-                        println!("Token não encontrado");
-                        continue;
-                    }
-                };
-                let end_token1: tokio::sync::RwLockReadGuard<'_, Token> =
-                    self.tokens[*end_token1_idx].read().await;
-
-                println!(
-                    "{}: {} -> {}: {} -- on pool: {} {} {}",
-                    if t.from0 {
-                        &end_token0.symbol
-                    } else {
-                        &end_token1.symbol
-                    },
-                    t.amount_in,
-                    if t.from0 {
-                        &end_token1.symbol
-                    } else {
-                        &end_token0.symbol
-                    },
-                    t.amount_out,
-                    t.dex,
-                    t.version,
-                    t.fee
-                );
+        for return_path in paths {
+            let (trades, amount_out) = self.calculate_path(&return_path, amount_in).await;
+            if amount_out > best_amount {
+                best_amount = amount_out;
+                best_path = trades;
             }
+        }
 
-            println!("path back");
+        if best_amount > U256::zero() {
+            Some((best_path, best_amount))
+        } else {
+            None
+        }
+    }
 
-            for t in &path[1] {
+    async fn process_profitable_paths(&self, paths: Vec<(U256, Vec<Trade>, Vec<Trade>)>) {
+        for (profit, foward, return_path) in paths {
+            println!("Lucro encontrado: {}", profit);
+            self.print_path("Ida", &foward);
+            self.print_path("Volta", &return_path);
+            println!("=========================");
+        }
+    }
+
+    async fn print_pool_data(&mut self, label: &str, pool_addr: &H160) {
+        println!("--- {} ---", label);
+
+        for mut dex in self.dexes.iter_mut() {
+            if let Some(pool) = dex.get_pool_by_address(*pool_addr) {
+                let pool_guard = pool.read().await;
+                let tokens = pool_guard.get_tokens();
                 println!(
-                    "DEBUG: from0 = {}, token0 = {:?}, token1 = {:?}",
-                    t.from0, t.token0, t.token1
+                    "{} {} {}: {} -> {}",
+                    pool_guard.get_dex(),
+                    pool_guard.get_version(),
+                    pool_guard.get_fee(),
+                    tokens[0],
+                    tokens[1]
                 );
-
-                let end_token0_idx = match self.tokens_lookup.get(&t.token0) {
-                    Some(x) => x,
-                    None => {
-                        println!("Token não encontrado");
-                        continue;
-                    }
-                };
-                let end_token0 = self.tokens[*end_token0_idx].read().await;
-
-                let end_token1_idx = match self.tokens_lookup.get(&t.token1) {
-                    Some(x) => x,
-                    None => {
-                        println!("Token não encontrado");
-                        continue;
-                    }
-                };
-                let end_token1 = self.tokens[*end_token1_idx].read().await;
-
-                println!(
-                    "{}: {} -> {}: {} -- on pool: {} v: {}",
-                    if t.from0 {
-                        &end_token0.symbol
-                    } else {
-                        &end_token1.symbol
-                    },
-                    t.amount_in,
-                    if t.from0 {
-                        &end_token1.symbol
-                    } else {
-                        &end_token0.symbol
-                    },
-                    t.amount_out,
-                    t.dex,
-                    t.version
-                );
+            } else {
+                println!("Pool não encontrada");
             }
         }
     }
 
+    async fn print_path(&self, label: &str, trades: &[Trade]) {
+        println!("--- {} ---", label);
+        for trade in trades {
+            let from = if trade.from0 {
+                &trade.token0
+            } else {
+                &trade.token1
+            };
+            let to = if trade.from0 {
+                &trade.token1
+            } else {
+                &trade.token0
+            };
+            println!(
+                "{} {} {} - {} {} -> {} {}",
+                trade.dex,
+                trade.version,
+                trade.fee,
+                trade.amount_in,
+                self.get_symbol(from).await,
+                self.get_symbol(to).await,
+                trade.amount_out,
+            );
+        }
+    }
+
+    async fn get_symbol(&self, address: &H160) -> String {
+        if let Some(idx) = self.tokens_lookup.get(address) {
+            let token = self.tokens[*idx].read().await;
+            token.symbol.clone()
+        } else {
+            "Unknown".to_string()
+        }
+    }
+
+    async fn print_trade_flow(&self, trades: &[Trade]) {
+        for trade in trades {
+            let token0 = self.get_symbol(&trade.token0).await;
+            let token1 = self.get_symbol(&trade.token1).await;
+
+            println!(
+                "{} {} → {}: {} (Fee: {}%) [Dex: {}]",
+                trade.amount_in,
+                if trade.from0 { &token0 } else { &token1 },
+                if trade.from0 { &token1 } else { &token0 },
+                trade.amount_out,
+                trade.fee / 100, // Exibe fee como porcentagem
+                trade.dex
+            );
+        }
+    }
+
+    fn path_uses_pool(&self, path: &[H160], pool_addr: &H160) -> bool {
+        path.contains(pool_addr)
+    }
     pub async fn get_conected_nodes(&self, from: &H160) -> Vec<H160> {
         let mut nodes = Vec::new();
         let current_idx = match self.tokens_lookup.get(from) {
@@ -436,7 +411,7 @@ impl Arbitro {
         nodes
     }
 
-    pub async fn update_paths(&self, start: &H160) -> HashMap<H160, Vec<Vec<H160>>> {
+    pub async fn find_foward_paths(&self, start: &H160) -> HashMap<H160, Vec<Vec<H160>>> {
         let mut paths = HashMap::new();
         let mut queue = VecDeque::new();
         queue.push_back((vec![*start], 0)); // Rastreia profundidade
@@ -471,57 +446,47 @@ impl Arbitro {
         }
         paths
     }
+
+    /// Return all token‐sequences that start at `from`, end at `to`, within `max_depth` hops.
     pub async fn find_return_paths(
         &self,
-        start: &H160,
+        from: H160,
+        to: H160,
         max_depth: usize,
-    ) -> HashMap<H160, Vec<Vec<H160>>> {
-        let mut return_paths = HashMap::new();
-        let connected_nodes = self.get_conected_nodes(start).await;
-    
-        // Para cada nó conectado ao token inicial
-        for node in &connected_nodes {
-            let mut queue = VecDeque::new();
-            let mut visited = HashSet::new();
-            
-            queue.push_back((vec![*node], 0));  // Começa do nó conectado
-            
-            while let Some((current_path, depth)) = queue.pop_front() {
-                if depth > max_depth {
+    ) -> Vec<Vec<H160>> {
+        let mut results = Vec::new();
+        let mut queue = VecDeque::new();
+        // begin at `from`
+        queue.push_back(vec![from]);
+
+        while let Some(path) = queue.pop_front() {
+            // we count hops as edges, so path.len() > max_depth+1 => too deep
+            if path.len() > max_depth + 1 {
+                continue;
+            }
+
+            let last = *path.last().unwrap();
+            // if we've come back to `to`, record the *full* path
+            if last == to {
+                results.push(path.clone());
+                continue;
+            }
+
+            // otherwise, keep exploring
+            for &next in &self.get_conected_nodes(&last).await {
+                // avoid cycles
+                if path.contains(&next) {
                     continue;
                 }
-    
-                let last_node = current_path.last().unwrap();
-                
-                // Encontrou caminho de volta para o token inicial
-                if last_node == start {
-                    return_paths.entry(*node)
-                        .or_insert_with(Vec::new)
-                        .push(current_path);
-                    continue;
-                }
-    
-                if visited.contains(last_node) {
-                    continue;
-                }
-                visited.insert(*last_node);
-    
-                let connected = self.get_conected_nodes(last_node).await;
-                for next_node in connected {
-                    // Evita ciclos exceto para retorno ao start
-                    if next_node != *start && current_path.contains(&next_node) {
-                        continue;
-                    }
-                    
-                    let mut new_path = current_path.clone();
-                    new_path.push(next_node);
-                    queue.push_back((new_path, depth + 1));
-                }
+                let mut new_path = path.clone();
+                new_path.push(next);
+                queue.push_back(new_path);
             }
         }
-    
-        return_paths
+
+        results
     }
+
     pub async fn select_path(
         &mut self,
         paths: &[Vec<H160>],
@@ -557,7 +522,14 @@ impl Arbitro {
             }
         };
         let node = self.tokens[*node_idx].read().await;
-
+        let to_node_idx = match self.tokens_lookup.get(to) {
+            Some(x) => x,
+            None => {
+                println!("Token não encontrado");
+                return None;
+            }
+        };
+        let to_node = self.tokens[*to_node_idx].read().await;
         let pools_with = match node.pools_by_pair.get(to) {
             Some(x) => x.clone(),
             None => {
@@ -565,17 +537,31 @@ impl Arbitro {
                 return None;
             }
         };
-        // println!("pools with {:?}", &pools_with);
+        //println!("{} pools {:?} with {}",node.symbol ,&pools_with, to_node.symbol);
         let mut best_trade = None;
 
         for pool_addr in pools_with {
             if let Some(pool) = node.pools.get(&pool_addr) {
                 let pool_guard = pool.pool.read().await;
+                //println!("-- {} --", pool_guard.get_address());
+                //println!(
+                //    "pool: {:?} {} {}",
+                //    pool_guard.get_dex(),
+                //    pool_guard.get_version(),
+                //    pool_guard.get_fee()
+                //);
                 if let Some(trade) = pool_guard.trade(amount_in, pool.is0) {
                     //println!(
                     //    "Trade encontrada: {} -> {}: {} from0: {}",
-                    //    trade.token0, trade.token1, trade.amount_out,trade.from0
+                    //    self.get_symbol(&trade.token0).await, self.get_symbol(&trade.token1).await, trade.amount_out,trade.from0
                     // );
+
+                    //println!(
+                    //    "Pool: {} {} {}",
+                    //    pool_guard.get_dex(),
+                    //   pool_guard.get_version(),
+                    //    pool_guard.get_fee()
+                    //);
                     if best_trade
                         .as_ref()
                         .map_or(true, |(pool_addr, t): &(H160, Trade)| {
@@ -587,12 +573,12 @@ impl Arbitro {
                     }
                 } else {
                     let p = pool.pool.read().await;
-                    println!(
-                        "Trade falhou em {} {} {}",
-                        p.get_dex(),
-                        p.get_version(),
-                        p.get_fee()
-                    );
+                    //println!(
+                    //    "Trade falhou em {} {} {}",
+                    //    p.get_dex(),
+                    //    p.get_version(),
+                    //    p.get_fee()
+                    //);
                 }
             } else {
                 println!("Pool não encontrada para o endereço {}", pool_addr);
@@ -602,6 +588,7 @@ impl Arbitro {
         best_trade
     }
     pub async fn calculate_path(&mut self, path: &[H160], amount_in: U256) -> (Vec<Trade>, U256) {
+        //println!("Calculando caminho: {:?}", path);
         let mut current_amount = amount_in;
         let mut trade_sequence = Vec::new();
 
@@ -612,11 +599,14 @@ impl Arbitro {
             if let Some((pool_addr, mut trade)) =
                 self.select_pool(from_node, to_node, current_amount).await
             {
-                // Registrar a direção real usada
                 trade.from0 = self.tokens_lookup.get(from_node).unwrap()
                     == self.tokens_lookup.get(&trade.token0).unwrap();
                 trade_sequence.push(trade.clone());
                 current_amount = trade.amount_out;
+                //println!(
+                //    "Trade: {} -> {}: {} ({} -> {})",
+                //    self.get_symbol(&trade.token0).awa, self.get_symbol(&trade.token1).awa, trade.amount_out, trade.dex, trade.version
+                //);
             } else {
                 return (vec![], U256::zero());
             }

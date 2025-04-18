@@ -11,7 +11,7 @@ use ethers::{
         bigint,
         consts::{U16, U160, U2, U24, U25, U8},
     },
-    providers::{Http, Provider, Ws},
+    providers::{Http, Provider},
     types::{H160, U256},
 };
 use futures::future::join_all;
@@ -37,7 +37,7 @@ pub struct V2Pool {
     pub fee: u32,
     pub reserves0: U256,
     pub reserves1: U256,
-    pub contract: Contract<Provider<Ws>>,
+    pub contract: Contract<Provider<Http>>,
 }
 
 impl V2Pool {
@@ -49,7 +49,7 @@ impl V2Pool {
         address: Address,
         token0: Token,
         token1: Token,
-        contract: Contract<Provider<Ws>>,
+        contract: Contract<Provider<Http>>,
     ) -> Self {
         Self {
             address,
@@ -71,7 +71,7 @@ impl V2Pool {
         address: Address,
         token0: Token,
         token1: Token,
-        contract: Contract<Provider<Ws>>,
+        contract: Contract<Provider<Http>>,
     ) -> Self {
         let mut instance =
             V2Pool::new(exchange, version, fee, address, token0, token1, contract).await;
@@ -194,7 +194,7 @@ pub struct V3Pool {
     pub tick_spacing: i32,
     pub liquidity: U256,
     pub x96price: U256,
-    pub contract: Contract<Provider<Ws>>,
+    pub contract: Contract<Provider<Http>>,
 }
 
 impl V3Pool {
@@ -206,7 +206,7 @@ impl V3Pool {
         version: String,
         token0: Token,
         token1: Token,
-        contract: Contract<Provider<Ws>>,
+        contract: Contract<Provider<Http>>,
     ) -> Self {
         Self {
             address,
@@ -231,7 +231,7 @@ impl V3Pool {
         dex: String,
         version: String,
         fee: u32,
-        contract: Contract<Provider<Ws>>,
+        contract: Contract<Provider<Http>>,
     ) -> Self {
         let mut instance = Self::new(address, fee, dex, version, token0, token1, contract).await;
 
@@ -310,7 +310,7 @@ impl Pool for V3Pool {
     fn trade(&self, amount_in: U256, from0: bool) -> Option<Trade> {
         let mut ticks = self.active_ticks.clone();
 
-        // // println!("ticks {}", ticks.len());
+        //println!("ticks {}", ticks.len());
         if from0 {
             ticks.retain(|&t| t.tick > self.current_tick);
         } else {
@@ -335,53 +335,53 @@ impl Pool for V3Pool {
             .and_then(|v| v.checked_div(U256::from(1_000_000)))?;
 
         let mut remaining_in = amount_in.checked_sub(fee_amount)?;
-        // // println!("starting trade for {}", self.token0.symbol);
-        // // println!("amount in {}", amount_in);
+        //println!("starting trade for {}", self.token0.symbol);
+        //println!("amount in {}", amount_in);
 
         let TICK_BASE_NUMERATOR: U256 = U256::from(10001);
         let TICK_BASE_DENOMINATOR: U256 = U256::from(10000);
         let Q96: U256 = U256::from(1) << 96;
-        // // println!("current tick {}", current_tick);
-        // // println!("ticks {}", ticks.len());
+        //println!("current tick {}", current_tick);
+        //println!("ticks {}", ticks.len());
 
         for tick in ticks {
-            // // println!("computing next price");
+            //println!("computing next price");
             let next_sqroot_price = V3Pool::tick_price(tick.tick)?;
-            // // println!("next price {}", next_sqroot_price);
+            //println!("next price {}", next_sqroot_price);
 
             let available_liquidity = current_liquidity.clone();
-            // // println!("compute amount possible");
+            //println!("compute amount possible");
             let amount_possible = V3Pool::compute_amount_possible(
                 from0,
                 &available_liquidity,
                 &current_sqrt_price,
                 &next_sqroot_price,
             )?;
-            // // println!("amount possible {}", amount_possible);
-            // // println!("starting trade for tick {}", tick.tick);
-            // // println!("amount possible {}", amount_possible);
+            //println!("amount possible {}", amount_possible);
+            //println!("starting trade for tick {}", tick.tick);
+            //println!("amount possible {}", amount_possible);
 
             if remaining_in < amount_possible {
-                // // println!("remaining in do not cross tick");
+                //println!("remaining in do not cross tick");
                 let new_price = if from0 {
-                    // // println!("computing price from 0");
+                    //println!("computing price from 0");
                     let r = V3Pool::compute_price_from0(
                         &remaining_in,
                         &available_liquidity,
                         &current_sqrt_price,
                         true,
                     );
-                    // // println!("price from 0 {:?}", r);
+                    //println!("price from 0 {:?}", r);
                     r?
                 } else {
-                    // // println!("computing price from 1");
+                    //println!("computing price from 1");
                     let r = V3Pool::compute_price_from1(
                         &remaining_in,
                         &available_liquidity,
                         &current_sqrt_price,
                         true,
                     );
-                    // // println!("price from 1 {:?}", r);
+                    //println!("price from 1 {:?}", r);
                     r?
                 };
 
@@ -430,19 +430,21 @@ impl Pool for V3Pool {
                 let liquidity_net = tick.liquidityNet;
                 if from0 {
                     current_liquidity = if liquidity_net > 0 {
-                        current_liquidity + U256::from(liquidity_net as u128)
+                        current_liquidity.saturating_add(U256::from(liquidity_net as u128))
                     } else {
-                        current_liquidity - U256::from((-liquidity_net) as u128)
+                        current_liquidity.saturating_sub(U256::from((-liquidity_net) as u128))
                     };
                 } else {
                     current_liquidity = if liquidity_net < 0 {
-                        current_liquidity + U256::from((-liquidity_net) as u128)
+                        current_liquidity.saturating_add(U256::from((-liquidity_net) as u128))
                     } else {
-                        current_liquidity - U256::from(liquidity_net as u128)
+                        current_liquidity.saturating_sub(U256::from(liquidity_net as u128))
                     };
                 }
-
                 current_sqrt_price = next_sqroot_price;
+                remaining_in = remaining_in
+                    .checked_sub(amount_possible)
+                    .unwrap_or(U256::zero());
             }
         }
 
@@ -583,8 +585,7 @@ impl V3Pool {
     fn tick_price(target_tick: i32) -> Option<U256> {
         const MAX_TICK: i32 = 887272;
         let abs_tick = target_tick.unsigned_abs() as u32;
-
-        // Validate tick range
+    
         if abs_tick > MAX_TICK as u32 {
             eprintln!(
                 "[0] Tick {} exceeds maximum allowed (±{})",
@@ -592,94 +593,95 @@ impl V3Pool {
             );
             return None;
         }
-
+    
         let mut ratio = if abs_tick & 0x1 != 0 {
             U256::from_dec_str("255706422905421325395407485534392863200").unwrap()
         } else {
             U256::from(1) << 128
         };
-
-        // Precomputed magic numbers from Uniswap V3
+    
+        // Magic numbers are now ordered from highest mask to lowest
         let magic_numbers = [
             (
-                0x2,
-                U256::from_dec_str("255706422905421325395407485534392863200").unwrap(),
-            ),
-            (
-                0x4,
-                U256::from_dec_str("255223438104885656517683320344580614584").unwrap(),
-            ),
-            (
-                0x8,
-                U256::from_dec_str("254322734553735582512512255949976165369").unwrap(),
-            ),
-            (
-                0x10,
-                U256::from_dec_str("250846047417607353339794883300939388931").unwrap(),
-            ),
-            (
-                0x20,
-                U256::from_dec_str("234435455086227615880830483505416481938").unwrap(),
-            ),
-            (
-                0x40,
-                U256::from_dec_str("191204177664095573937843702857003287777").unwrap(),
-            ),
-            (
-                0x80,
-                U256::from_dec_str("115165952705265534866474743471916972268").unwrap(),
-            ),
-            (
-                0x100,
-                U256::from_dec_str("29287344681543793554040907002057611822").unwrap(),
-            ),
-            (
-                0x200,
-                U256::from_dec_str("3868562622766813359059763198240802791").unwrap(),
-            ),
-            (
-                0x400,
-                U256::from_dec_str("170141183460469231731687303715884105728").unwrap(),
-            ),
-            (
-                0x800,
-                U256::from_dec_str("170408874814886611515626254292199532339").unwrap(),
-            ),
-            (
-                0x1000,
-                U256::from_dec_str("177803588050028359909546862144531250000").unwrap(),
-            ),
-            (
-                0x2000,
-                U256::from_dec_str("215416728668509908758128906250000000000").unwrap(),
-            ),
-            (
-                0x4000,
-                U256::from_dec_str("340265210418746478515625000000000000000").unwrap(),
-            ),
-            (
-                0x8000,
-                U256::from_dec_str("844815322999501822113930908203125000000").unwrap(),
-            ),
-            (
-                0x10000,
+                0x80000,
                 U256::from_dec_str("366325949420163452428643381347626447728").unwrap(),
-            ),
-            (
-                0x20000,
-                U256::from_dec_str("142576269300693600730609870735819320320").unwrap(),
             ),
             (
                 0x40000,
                 U256::from_dec_str("435319348045928502739365042735923241779").unwrap(),
             ),
             (
-                0x80000,
+                0x20000,
+                U256::from_dec_str("142576269300693600730609870735819320320").unwrap(),
+            ),
+            (
+                0x10000,
                 U256::from_dec_str("366325949420163452428643381347626447728").unwrap(),
             ),
+            (
+                0x8000,
+                U256::from_dec_str("844815322999501822113930908203125000000").unwrap(),
+            ),
+            (
+                0x4000,
+                U256::from_dec_str("340265210418746478515625000000000000000").unwrap(),
+            ),
+            (
+                0x2000,
+                U256::from_dec_str("215416728668509908758128906250000000000").unwrap(),
+            ),
+            (
+                0x1000,
+                U256::from_dec_str("177803588050028359909546862144531250000").unwrap(),
+            ),
+            (
+                0x800,
+                U256::from_dec_str("170408874814886611515626254292199532339").unwrap(),
+            ),
+            (
+                0x400,
+                U256::from_dec_str("170141183460469231731687303715884105728").unwrap(),
+            ),
+            (
+                0x200,
+                U256::from_dec_str("3868562622766813359059763198240802791").unwrap(),
+            ),
+            (
+                0x100,
+                U256::from_dec_str("29287344681543793554040907002057611822").unwrap(),
+            ),
+            (
+                0x80,
+                U256::from_dec_str("115165952705265534866474743471916972268").unwrap(),
+            ),
+            (
+                0x40,
+                U256::from_dec_str("191204177664095573937843702857003287777").unwrap(),
+            ),
+            (
+                0x20,
+                U256::from_dec_str("234435455086227615880830483505416481938").unwrap(),
+            ),
+            (
+                0x10,
+                U256::from_dec_str("250846047417607353339794883300939388931").unwrap(),
+            ),
+            (
+                0x8,
+                U256::from_dec_str("254322734553735582512512255949976165369").unwrap(),
+            ),
+            (
+                0x4,
+                U256::from_dec_str("255223438104885656517683320344580614584").unwrap(),
+            ),
+            (
+                0x2,
+                U256::from_dec_str("255706422905421325395407485534392863200").unwrap(),
+            ),
         ];
-
-        for (mask, magic) in magic_numbers.iter() {
+    
+        // Iterate from highest mask to lowest
+        for (mask, magic) in magic_numbers.iter().rev() {
             if abs_tick & mask != 0 {
                 ratio = match ratio.checked_mul(*magic) {
                     Some(v) => v >> 128,
@@ -693,8 +695,7 @@ impl V3Pool {
                 };
             }
         }
-        let max_value = U256::max_value();
-        // Handle negative ticks
+    
         if target_tick < 0 {
             ratio = match U256::max_value().checked_div(ratio) {
                 Some(v) => v,
@@ -704,14 +705,13 @@ impl V3Pool {
                 }
             };
         }
-
-        // Convert to Q64.96 format
+    
         let sqrt_price_x96 = (ratio >> 32)
-            + (if (ratio % (U256::from(1) << 32) == U256::from(0)) {
+            + if (ratio % (U256::from(1) << 32)).is_zero() {
                 U256::from(0)
             } else {
                 U256::from(1)
-            });
+            };
         Some(sqrt_price_x96)
     }
     fn update_liquidity(current: U256, net: i128) -> Option<U256> {
@@ -725,7 +725,7 @@ impl V3Pool {
     }
 
     async fn fetch_bitmap_words(
-        contract: &Contract<Provider<Ws>>,
+        contract: &Contract<Provider<Http>>,
         word_indices: &[i32],
     ) -> HashMap<i32, U256> {
         let futures = word_indices.iter().map(|&idx| async move {
@@ -744,9 +744,9 @@ impl V3Pool {
 
     /// Fetch a single bitmap word from the contract.
     async fn fetch_bitmap_word(
-        contract: &Contract<Provider<Ws>>,
+        contract: &Contract<Provider<Http>>,
         index: i16,
-    ) -> Result<U256, ContractError<Provider<Ws>>> {
+    ) -> Result<U256, ContractError<Provider<Http>>> {
         contract
             .method::<(i16), U256>("tickBitmap", (index))?
             .call()
@@ -755,7 +755,7 @@ impl V3Pool {
 
     /// Find the nearest initialized ticks around the current tick.
     async fn find_nearest_ticks(
-        contract: &Contract<Provider<Ws>>,
+        contract: &Contract<Provider<Http>>,
         current_tick: i32,
         tick_spacing: i32,
     ) -> Vec<i32> {
@@ -792,7 +792,7 @@ impl V3Pool {
         ticks
     }
 
-    async fn fetch_tick_data(contract: &Contract<Provider<Ws>>, ticks: &[i32]) -> Vec<Tick> {
+    async fn fetch_tick_data(contract: &Contract<Provider<Http>>, ticks: &[i32]) -> Vec<Tick> {
         let tick_futures = ticks
             .iter()
             .map(|&tick| {

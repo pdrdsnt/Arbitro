@@ -43,6 +43,31 @@
                     "dex_name": "apeswap",
                     "version": "v2",
                     "factory": "0x0841BD0B734E4F5853f0dD8d7Ea041c241fb0Da6"
+                },
+                {
+                    "dex_name": "bakeryswap",
+                    "version": "v2",
+                    "factory": "0x01bF7C66c6BD861915CdaaE475042d3c4BaE16A7"
+                },
+                {
+                    "dex_name": "julswap",
+                    "version": "v2",
+                    "factory": "0x553990F2CBA90272390f62C5BDb1681fFc899675"
+                },
+                {
+                    "dex_name": "cheeseswap",
+                    "version": "v2",
+                    "factory": "0xdd538E4Fd1b69B7863e1F741213276A6CF1EfB3B"
+                },
+                {
+                    "dex_name": "wault",
+                    "version": "v2",
+                    "factory": "0xB42E3FE66b1d77A71C3E962416E07Fd98B03C8b6"
+                },
+                {
+                    "dex_name": "knights",
+                    "version": "v2",
+                    "factory": "0x9E6BDD28E5522a04B50c33B4fB3E5BD3f71622d1"
                 }
             ],
             "tokens": [
