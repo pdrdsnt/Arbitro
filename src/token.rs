@@ -19,9 +19,7 @@ use sqlx::pool;
 use tokio::sync::RwLock;
 
 use crate::{
-    arbitro::{self, Arbitro},
-    pool::{Pool, V2Pool},
-    pool_utils::{AnyPool, PoolDir, Trade},
+    arbitro::{self, Arbitro}, mult_provider::MultiProvider, pool::{Pool, V2Pool}, pool_utils::{AnyPool, PoolDir, Trade}
 };
 
 #[derive(Debug, Clone)]
@@ -30,7 +28,7 @@ pub struct Token {
     pub address: H160,
     pub symbol: String,
     pub decimals: u8,
-    pub contract: Contract<Provider<Http>>,
+    pub contract: Contract<Provider<MultiProvider>>,
     pub pools: HashMap<H160, PoolDir>,
     pub pools_by_pair: HashMap<H160, HashSet<H160>>,
 }
@@ -41,7 +39,7 @@ impl Token {
         address: H160,
         symbol: String,
         decimals: u8,
-        contract: Contract<Provider<Http>>,
+        contract: Contract<Provider<MultiProvider>>,
         pools: HashMap<H160, PoolDir>,
     ) -> Self {
         Token {

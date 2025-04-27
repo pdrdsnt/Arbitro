@@ -19,4 +19,6 @@ rust_decimal_macros = "1.36"
 futures = "0.3.31"
 rayon = "1.10.0"
 crossbeam-channel = "0.5.15"
+thiserror = "2.0.12"
+ethers-providers = "2.0.14"
 

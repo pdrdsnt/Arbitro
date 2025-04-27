@@ -33,16 +33,6 @@
                     "dex_name": "biswap",
                     "version": "v2",
                     "factory": "0x858E3312ed3A876947EA49d572A7C42DE08af7EE"
-                },
-                {
-                    "dex_name": "mdex",
-                    "version": "v2",
-                    "factory": "0x3CD1C46068dAEa5Ebb0d3f55F6915B10648062B8"
-                },
-                {
-                    "dex_name": "apeswap",
-                    "version": "v2",
-                    "factory": "0x0841BD0B734E4F5853f0dD8d7Ea041c241fb0Da6"
                 }
             ],
             "tokens": [
@@ -65,15 +55,33 @@
                     "decimals": 18
                 },
                 {
-                    "address": "0xe9e7CEA3DedcA5984780Bafc599bD69ADd087D56",
+                    "address": "0x55d398326f99059fF775485246999027B3197955",
+                    "symbol": "USDT",
+                    "name": "Tether USD",
+                    "decimals": 18
+                },
+                {
+                    "address": "0xe9e7cea3dedca5984780bafc599bd69add087d56",
                     "symbol": "BUSD",
                     "name": "Binance USD",
                     "decimals": 18
                 },
                 {
-                    "address": "0x7130d2A12B9BCbFAe4f2634d864A1Ee1Ce3Ead9c",
+                    "address": "0x8ac76a51cc950d9822d68b83fe1ad97b32cd580d",
+                    "symbol": "USDC",
+                    "name": "USD Coin",
+                    "decimals": 18
+                },
+                {
+                    "address": "0x7130d2a12b9bcBFAe4f2634d864A1Ee1Ce3Ead9c",
                     "symbol": "BTCB",
-                    "name": "Bitcoin BEP2",
+                    "name": "Binance-Peg Bitcoin",
+                    "decimals": 18
+                },
+                {
+                    "address": "0x2170Ed0880ac9A755fd29B2688956BD959F933F8",
+                    "symbol": "ETH",
+                    "name": "Binance-Peg Ethereum",
                     "decimals": 18
                 }
             ],

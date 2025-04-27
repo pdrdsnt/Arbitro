@@ -7,16 +7,13 @@ use std::{collections::HashMap, sync::Arc, vec};
 use tokio::sync::RwLock;
 
 use crate::{
-    pair::Pair,
-    pool::{V2Pool, V3Pool},
-    pool_utils::{AbisData, AnyPool},
-    token::Token,
+    mult_provider::MultiProvider, pair::Pair, pool::{V2Pool, V3Pool}, pool_utils::{AbisData, AnyPool}, token::Token
 };
 
 #[derive(Clone)]
 pub struct Dex {
     pub name: String,
-    pub factory: Contract<Provider<Http>>,
+    pub factory: Contract<Provider<MultiProvider>>,
     // Pools grouped by Pair
     pub pools: HashMap<Pair, Vec<Arc<RwLock<AnyPool>>>>,
     // New field: a HashMap storing shared references to pools (keyed by the pool's address)
@@ -60,7 +57,7 @@ impl AnyDex {
     pub fn new(
         name: String,
         v2: bool,
-        factory: Contract<Provider<Http>>,
+        factory: Contract<Provider<MultiProvider>>,
         pool_abi: Arc<AbisData>,
     ) -> Self {
         let dex = Dex {
@@ -227,7 +224,8 @@ impl AnyDex {
         }
     }pub async fn add_pool(&mut self, pair: Pair, pool: Arc<RwLock<AnyPool>>) {
         match self {
-            AnyDex::V2(dex, _) | AnyDex::V3(dex, _) => {
+            AnyDex::V2(dex, _) | 
+            AnyDex::V3(dex, _) => {
                 let address = {
                     let guard = pool.read().await; // Espera assincronamente
                     guard.get_address()

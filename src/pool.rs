@@ -1,4 +1,5 @@
 use crate::{
+    mult_provider::MultiProvider,
     pool_utils::{Tick, Trade},
     token::Token,
 };
@@ -7,10 +8,10 @@ use bigdecimal::{self, BigDecimal, FromPrimitive};
 use ethers::{
     abi::Address,
     contract::{Contract, ContractError},
-    core::k256::elliptic_curve::{
+    core::k256::{elliptic_curve::{
         bigint,
         consts::{U16, U160, U2, U24, U25, U8},
-    },
+    }, pkcs8::der::oid::Arc},
     providers::{Http, Provider},
     types::{H160, U256},
 };
@@ -37,7 +38,7 @@ pub struct V2Pool {
     pub fee: u32,
     pub reserves0: U256,
     pub reserves1: U256,
-    pub contract: Contract<Provider<Http>>,
+    pub contract: Contract<Provider<MultiProvider>>,
 }
 
 impl V2Pool {
@@ -49,7 +50,7 @@ impl V2Pool {
         address: Address,
         token0: Token,
         token1: Token,
-        contract: Contract<Provider<Http>>,
+        contract: Contract<Provider<MultiProvider>>,
     ) -> Self {
         Self {
             address,
@@ -71,7 +72,7 @@ impl V2Pool {
         address: Address,
         token0: Token,
         token1: Token,
-        contract: Contract<Provider<Http>>,
+        contract: Contract<Provider<MultiProvider>>,
     ) -> Self {
         let mut instance =
             V2Pool::new(exchange, version, fee, address, token0, token1, contract).await;
@@ -88,7 +89,7 @@ impl Pool for V2Pool {
         match reserves_call_result {
             Ok(reserves) => {
                 let var = reserves.call_raw().await;
-
+                println!("reserves {:?}", var);
                 match var {
                     Ok((reserve0, reserve1, time)) => {
                         self.reserves0 = reserve0;
@@ -105,65 +106,40 @@ impl Pool for V2Pool {
         if (from0 && self.reserves0 == U256::zero()) || (!from0 && self.reserves1 == U256::zero()) {
             return None;
         }
-        let big_amount_in = amount_in.clone();
-        let r0 = &self.reserves0;
-        let r1 = &self.reserves1;
 
-        // Calculate the input and output reserves based on the trade direction
-        let (reserve_in, reserve_out) = if from0 { (r0, r1) } else { (r1, r0) };
-
-        // Fee multiplier: assume self.fee is in basis points (e.g., 30 for 0.3%)
-        let fee_multiplier = U256::from(self.fee);
-        let tenk = U256::from(10_000);
-
-        let amount_after_fee = amount_in
-            .checked_mul(tenk.checked_sub(fee_multiplier)?)?
-            .checked_div(tenk)?;
-
-        // Calculate amount out using the constant product formula
-        // amount_out = (reserve_out * amount_in_with_fee) / (reserve_in + amount_in_with_fee)
-        let numerator = reserve_out * &amount_after_fee;
-        let denominator = reserve_in + &amount_after_fee;
-
-        if denominator == U256::from(0) {
-            return None;
-        }
-
-        let amount_out = numerator / denominator;
-
-        // New reserves after the swap
-        let (new_r0, new_r1) = if from0 {
-            (r0 + amount_after_fee, r1 - amount_out)
-        } else {
-            (r0 - amount_out, r1 + amount_after_fee)
+        // 2. Get reserves in proper decimal scale
+        let (mut reserve_in, mut reserve_out) = match from0 {
+            true => (self.reserves0, self.reserves1),
+            false => (self.reserves1, self.reserves0),
         };
 
-        // Calculate current and new prices
-        let scale = U256::from(1e18 as u64);
-        let current_price = if from0 {
-            (self.reserves1.checked_mul(scale)?).checked_div(self.reserves0)?
-        } else {
-            (self.reserves0.checked_mul(scale)?).checked_div(self.reserves1)?
-        };
-        let new_price = if from0 {
-            (new_r1.checked_mul(scale)?).checked_div(new_r0)?
-        } else {
-            (new_r0.checked_mul(scale)?).checked_div(new_r1)?
-        };
+        // 3. Apply V2 fee calculation correctly (0.3% fee)
+        let amount_in_less_fee = amount_in
+            .checked_mul(U256::from(997))?
+            .checked_div(U256::from(1000))?;
+        let numerator = amount_in_less_fee.checked_mul(reserve_out)?;
+        let denominator = reserve_in.checked_add(amount_in_less_fee)?;
+        let amount_out = numerator.checked_div(denominator)?;
+        // 5. Calculate price impact with decimal adjustment
 
-        // Price impact
-        let price_impact = if current_price > U256::zero() {
-            let delta = if current_price > new_price {
-                current_price - new_price
-            } else {
-                new_price - current_price
-            };
+        let current_price = reserve_out.checked_div(reserve_in)?;
 
-            delta.checked_mul(scale)?.checked_div(current_price)? // Scales to 1e18 (e.g., 0.1e18 = 10%)
-        } else {
-            U256::zero()
-        };
-        // Create the trade data object
+        let new_reserve_in = reserve_in.checked_add(amount_in_less_fee)?;
+        let new_reserve_out = reserve_out.checked_sub(amount_out)?;
+        let new_price = new_reserve_out.checked_div(new_reserve_in)?;
+
+        // Multiply numerator first to preserve precision (like fixed-point math)
+        let scale = U256::from(10).pow(18.into()); // or 1e6 if 1e18 feels too big
+        let current_price = reserve_out.checked_mul(scale)?.checked_div(reserve_in)?;
+        let new_price = new_reserve_out
+            .checked_mul(scale)?
+            .checked_div(new_reserve_in)?;
+
+        let price_impact = current_price
+            .checked_sub(new_price)?
+            .checked_mul(U256::from(10000))?
+            .checked_div(current_price)?;
+
         Some(Trade {
             dex: self.exchange.clone(),
             version: self.version.clone(),
@@ -172,10 +148,10 @@ impl Pool for V2Pool {
             token1: self.token1.address,
             pool: self.address,
             from0,
-            amount_in: big_amount_in.clone(),
+            amount_in,
             amount_out,
             price_impact,
-            fee_amount: &big_amount_in - &amount_after_fee, // Fee amount
+            fee_amount: amount_in.checked_sub(amount_in_less_fee)?,
             raw_price: current_price,
         })
     }
@@ -194,7 +170,7 @@ pub struct V3Pool {
     pub tick_spacing: i32,
     pub liquidity: U256,
     pub x96price: U256,
-    pub contract: Contract<Provider<Http>>,
+    pub contract: Contract<Provider<MultiProvider>>,
 }
 
 impl V3Pool {
@@ -206,7 +182,7 @@ impl V3Pool {
         version: String,
         token0: Token,
         token1: Token,
-        contract: Contract<Provider<Http>>,
+        contract: Contract<Provider<MultiProvider>>,
     ) -> Self {
         Self {
             address,
@@ -231,7 +207,7 @@ impl V3Pool {
         dex: String,
         version: String,
         fee: u32,
-        contract: Contract<Provider<Http>>,
+        contract: Contract<Provider<MultiProvider>>,
     ) -> Self {
         let mut instance = Self::new(address, fee, dex, version, token0, token1, contract).await;
 
@@ -289,7 +265,7 @@ impl Pool for V3Pool {
         match liquidity_call_result {
             Ok(liquidity) => {
                 let var = liquidity.call_raw().await;
-
+                println!("liquidity {:?}", var);
                 match var {
                     Ok(liquidity) => {
                         self.liquidity = liquidity;
@@ -585,7 +561,7 @@ impl V3Pool {
     fn tick_price(target_tick: i32) -> Option<U256> {
         const MAX_TICK: i32 = 887272;
         let abs_tick = target_tick.unsigned_abs() as u32;
-    
+
         if abs_tick > MAX_TICK as u32 {
             eprintln!(
                 "[0] Tick {} exceeds maximum allowed (±{})",
@@ -593,13 +569,13 @@ impl V3Pool {
             );
             return None;
         }
-    
+
         let mut ratio = if abs_tick & 0x1 != 0 {
             U256::from_dec_str("255706422905421325395407485534392863200").unwrap()
         } else {
             U256::from(1) << 128
         };
-    
+
         // Magic numbers are now ordered from highest mask to lowest
         let magic_numbers = [
             (
@@ -679,39 +655,32 @@ impl V3Pool {
                 U256::from_dec_str("255706422905421325395407485534392863200").unwrap(),
             ),
         ];
-    
+
         // Iterate from highest mask to lowest
-        for (mask, magic) in magic_numbers.iter().rev() {
+        for (mask, magic) in magic_numbers.iter() {
             if abs_tick & mask != 0 {
-                ratio = match ratio.checked_mul(*magic) {
-                    Some(v) => v >> 128,
-                    None => {
-                        eprintln!(
-                            "[1] Multiplication overflow at tick {} (mask: {:x})",
-                            target_tick, mask
-                        );
-                        return None;
-                    }
-                };
+                // wrap on overflow, then shift down
+                let (wrapped, _) = ratio.overflowing_mul(*magic);
+                ratio = wrapped >> 128;
             }
         }
-    
-        if target_tick < 0 {
-            ratio = match U256::max_value().checked_div(ratio) {
-                Some(v) => v,
-                None => {
-                    eprintln!("[2] Division overflow for negative tick {}", target_tick);
-                    return None;
-                }
-            };
+
+        // Uniswap does: if tick > 0, invert the Q128.128 ratio
+        if target_tick > 0 {
+            // type(uint256).max / ratio in Solidity
+            ratio = U256::MAX / ratio;
         }
-    
-        let sqrt_price_x96 = (ratio >> 32)
-            + if (ratio % (U256::from(1) << 32)).is_zero() {
-                U256::from(0)
+
+        // Finally convert Q128.128 → Q128.96 by shifting 32 bits (rounding up)
+        let sqrt_price_x96 = {
+            let shifted = ratio >> 32;
+            if ratio & ((U256::one() << 32) - U256::one()) != U256::zero() {
+                shifted + U256::one()
             } else {
-                U256::from(1)
-            };
+                shifted
+            }
+        };
+
         Some(sqrt_price_x96)
     }
     fn update_liquidity(current: U256, net: i128) -> Option<U256> {
@@ -725,7 +694,7 @@ impl V3Pool {
     }
 
     async fn fetch_bitmap_words(
-        contract: &Contract<Provider<Http>>,
+        contract: &Contract<Provider<MultiProvider>>,
         word_indices: &[i32],
     ) -> HashMap<i32, U256> {
         let futures = word_indices.iter().map(|&idx| async move {
@@ -744,9 +713,9 @@ impl V3Pool {
 
     /// Fetch a single bitmap word from the contract.
     async fn fetch_bitmap_word(
-        contract: &Contract<Provider<Http>>,
+        contract: &Contract<Provider<MultiProvider>>,
         index: i16,
-    ) -> Result<U256, ContractError<Provider<Http>>> {
+    ) -> Result<U256, ContractError<Provider<MultiProvider>>> {
         contract
             .method::<(i16), U256>("tickBitmap", (index))?
             .call()
@@ -755,7 +724,7 @@ impl V3Pool {
 
     /// Find the nearest initialized ticks around the current tick.
     async fn find_nearest_ticks(
-        contract: &Contract<Provider<Http>>,
+        contract: &Contract<Provider<MultiProvider>>,
         current_tick: i32,
         tick_spacing: i32,
     ) -> Vec<i32> {
@@ -792,7 +761,7 @@ impl V3Pool {
         ticks
     }
 
-    async fn fetch_tick_data(contract: &Contract<Provider<Http>>, ticks: &[i32]) -> Vec<Tick> {
+    async fn fetch_tick_data(contract: &Contract<Provider<MultiProvider>>, ticks: &[i32]) -> Vec<Tick> {
         let tick_futures = ticks
             .iter()
             .map(|&tick| {

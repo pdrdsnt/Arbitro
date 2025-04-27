@@ -7,6 +7,8 @@ use ethers::{
     types::{H160, U256},
     utils::hex::ToHex,
 };
+
+use futures::{stream::FuturesUnordered, StreamExt};
 use num_traits::{Float, FromPrimitive};
 use sqlx::any;
 use std::{
@@ -30,16 +32,11 @@ use std::{
 //calculate the best path
 
 use crate::{
-    blockchain_db::{DexModel, TokenModel},
-    dex::{self, AnyDex, Dex},
-    pair::{self, Pair},
-    pool::{Pool, V2Pool},
-    pool_utils::{AbisData, AnyPool, PoolDir, Trade},
-    token::Token,
+    blockchain_db::{DexModel, TokenModel}, dex::{self, AnyDex, Dex}, mult_provider::MultiProvider, pair::{self, Pair}, pool::{self, Pool, V2Pool}, pool_utils::{AbisData, AnyPool, PoolDir, Trade}, token::Token
 };
 use bigdecimal::ToPrimitive;
 use futures::future;
-use tokio::sync::RwLock;
+use tokio::sync::{RwLock, Semaphore};
 
 pub struct Arbitro {
     pub dexes: Vec<AnyDex>,
@@ -52,7 +49,7 @@ impl Arbitro {
     pub fn new(
         dexes_data: &Vec<DexModel>,
         tokens_data: &Vec<TokenModel>,
-        provider: Arc<Provider<Http>>,
+        provider: Arc<Provider<MultiProvider>>,
         abis: Arc<AbisData>,
     ) -> Self {
         let mut arbitro: Arbitro = Arbitro {
@@ -72,7 +69,7 @@ impl Arbitro {
     fn create_dexes(
         &mut self,
         dexes_data: &Vec<DexModel>,
-        provider: Arc<Provider<Http>>,
+        provider: Arc<Provider<MultiProvider>>,
         abis: Arc<AbisData>,
     ) {
         let mut dexes = Vec::<AnyDex>::new();
@@ -123,7 +120,7 @@ impl Arbitro {
     fn create_tokens(
         &mut self,
         tokens_data: &Vec<TokenModel>,
-        provider: Arc<Provider<Http>>,
+        provider: Arc<Provider<MultiProvider>>,
         abis: Arc<AbisData>,
     ) {
         let mut addresses = Vec::new();
@@ -139,7 +136,7 @@ impl Arbitro {
             };
 
             addresses.push(addr);
-            let token_contract = Contract::new(addr, abis.bep_20.clone(), provider.clone());
+            let token_contract: ethers::contract::ContractInstance<Arc<Provider<MultiProvider>>, Provider<MultiProvider>> = Contract::new(addr, abis.bep_20.clone(), provider.clone());
 
             println!("Token criado: {}", token_data.name);
             _tkns.push(Arc::new(RwLock::new(Token::new(
@@ -159,65 +156,82 @@ impl Arbitro {
     }
 
     pub async fn create_pools(&mut self) {
-        let mut tokens_addresses = Vec::new();
-        for token in &self.tokens {
-            let token_guard = token.read().await;
-            tokens_addresses.push(token_guard.address);
-        }
-
+        // 1) Gather all token addresses in one go:
+        let tokens_addresses: Vec<H160> =
+            FuturesUnordered::from_iter(self.tokens.iter().map(|tok| {
+                let tok = tok.clone();
+                async move { tok.read().await.address }
+            }))
+            .collect()
+            .await;
+            
         if tokens_addresses.len() < 2 {
             return;
         }
+        let semaphore = Arc::new(Semaphore::new(6)); // Limit to 10 concurrent requests
 
-        for t0_i in 0..tokens_addresses.len() - 1 {
-            for t1_i in t0_i + 1..tokens_addresses.len() {
-                let addr_0 = tokens_addresses[t0_i];
-                let addr_1 = tokens_addresses[t1_i];
-
-                let t0_idx = match self.tokens_lookup.get(&addr_0) {
-                    Some(idx) => *idx,
+        // 2) Prepare a task for every (token0, token1, dex, fee) combination:
+        let mut tasks = FuturesUnordered::new();
+        for (i, &addr0) in tokens_addresses
+            .iter()
+            .enumerate()
+            .take(tokens_addresses.len() - 1)
+        {
+            for &addr1 in &tokens_addresses[i + 1..] {
+                // lookup indices once
+                let t0_idx = match self.tokens_lookup.get(&addr0) {
+                    Some(&i) => i,
                     None => continue,
                 };
-                let t1_idx = match self.tokens_lookup.get(&addr_1) {
-                    Some(idx) => *idx,
+                let t1_idx = match self.tokens_lookup.get(&addr1) {
+                    Some(&i) => i,
                     None => continue,
                 };
 
-                let token0_clone = {
-                    let token = self.tokens[t0_idx].read().await;
-                    token.clone()
-                };
-                let token1_clone = {
-                    let token = self.tokens[t1_idx].read().await;
-                    token.clone()
-                };
+                // clone out everything we'll need in the spawned task
+                let tokens = self.tokens.clone();
+                let lookup = self.tokens_lookup.clone();
+                let dexes = self.dexes.clone(); // assuming your dex type is `Clone`
+                let token0_a = addr0;
+                let token1_a = addr1;
+                let sem = semaphore.clone();
 
-                let pair = Pair::new(token0_clone.address, token1_clone.address);
+                tasks.push(tokio::spawn(async move {
+                    let _permit = sem.acquire_owned().await.unwrap();
+                    // re‑read the token structs
+                    let token0 = tokens[t0_idx].read().await.clone();
+                    let token1 = tokens[t1_idx].read().await.clone();
+                    let pair = Pair::new(token0.address, token1.address);
 
-                for dex in &mut self.dexes {
-                    let supported_fees: Vec<_> = dex.supported_fees().iter().cloned().collect();
-                    for fee in supported_fees {
-                        if let Some(pool) = dex
-                            .get_pool(pair.clone(), &self.tokens, &self.tokens_lookup, fee.clone())
-                            .await
-                        {
-                            let mut token0 = self.tokens[t0_idx].write().await;
-                            let mut token1 = self.tokens[t1_idx].write().await;
-
-                            token0.add_pool(pool.clone(), pair.a == addr_0).await;
-                            token1.add_pool(pool.clone(), pair.a == addr_1).await;
+                    let mut found = Vec::new();
+                    for mut dex in dexes {
+                        for &fee in dex.supported_fees().iter() {
+                            if let Some(pool) =
+                                dex.get_pool(pair.clone(), &tokens, &lookup, fee).await
+                            {
+                                // record (pool, from0, idx0, idx1)
+                                let from0 = pair.a == token0.address;
+                                found.push((pool, from0, t0_idx, t1_idx));
+                            }
                         }
                     }
-                }
+                    found
+                }));
+            }
+        }
+
+        // Consume tasks with results
+        while let Some(Ok(results)) = tasks.next().await {
+            for (pool, from0, t0_idx, t1_idx) in results {
+                let mut t0 = self.tokens[t0_idx].write().await;
+                let mut t1 = self.tokens[t1_idx].write().await;
+                t0.add_pool(pool.clone(), from0).await;
+                t1.add_pool(pool, !from0).await;
             }
         }
     }
 
-    pub async fn pathfind(&mut self, from: &H160) {
-        println!("Iniciando busca de caminhos...");
-        self.arbitrage(from, ethers::types::U256::from(10000)).await;
-    }
-    pub async fn arbitrage(&mut self, from: &H160, amount_in: U256) {
+    pub async fn arbitrage(&mut self, from: &H160, amount_in: U256) -> Vec<Vec<Trade>> {
         let forward_paths = self.find_foward_paths(from).await;
         let mut profitable_paths = Vec::new();
         println!(
@@ -245,7 +259,7 @@ impl Arbitro {
                 self.print_path("path: ", &best_foward).await;
                 let profit = return_amount.checked_sub(amount_in);
                 if profit.is_some() {
-                    profitable_paths.push((profit.unwrap(), best_foward));
+                    profitable_paths.push(best_foward);
                     println!("Profit found: {}", profit.unwrap());
                 } else {
                     let p = amount_in.saturating_sub(return_amount);
@@ -254,6 +268,7 @@ impl Arbitro {
             }
         }
 
+        profitable_paths
         // self.process_profitable_paths(profitable_paths).await;
     }
 
@@ -356,6 +371,35 @@ impl Arbitro {
                 self.get_symbol(to).await,
                 trade.amount_out,
             );
+            let _pool = self
+                .get_node_by_address(from)
+                .unwrap()
+                .read()
+                .await
+                .pools
+                .get(&trade.pool)
+                .unwrap()
+                .pool
+                .clone();
+            let pool = _pool.read().await;
+
+            let token0 = pool.get_tokens()[0];
+            let token1 = pool.get_tokens()[1];
+            let tkn0_idx = self
+                .tokens_lookup
+                .get(&token0)
+                .expect("Token0 não encontrado");
+            let tkn1_idx = self
+                .tokens_lookup
+                .get(&token1)
+                .expect("Token1 não encontrado");
+            let token0 = self.tokens[*tkn0_idx].read().await;
+            let token1 = self.tokens[*tkn1_idx].read().await;
+
+            //println!("-- Pool data --");
+            //println!("{:?}", pool.get_address());
+            //println!("price: {}", pool.get_price([token0.decimals, token1.decimals]).unwrap());
+            //println!("reserves {:?}", pool.get_reserves().unwrap());
         }
     }
 
@@ -507,7 +551,7 @@ impl Arbitro {
     }
 
     pub async fn select_pool(
-        &self,
+        &mut self,
         from: &H160,
         to: &H160,
         amount_in: U256,
@@ -551,17 +595,8 @@ impl Arbitro {
                 //    pool_guard.get_fee()
                 //);
                 if let Some(trade) = pool_guard.trade(amount_in, pool.is0) {
-                    //println!(
-                    //    "Trade encontrada: {} -> {}: {} from0: {}",
-                    //    self.get_symbol(&trade.token0).await, self.get_symbol(&trade.token1).await, trade.amount_out,trade.from0
-                    // );
+                    let pool_addr_clone = pool_addr.clone();
 
-                    //println!(
-                    //    "Pool: {} {} {}",
-                    //    pool_guard.get_dex(),
-                    //   pool_guard.get_version(),
-                    //    pool_guard.get_fee()
-                    //);
                     if best_trade
                         .as_ref()
                         .map_or(true, |(pool_addr, t): &(H160, Trade)| {
@@ -584,7 +619,43 @@ impl Arbitro {
                 println!("Pool não encontrada para o endereço {}", pool_addr);
             }
         }
+        /*
+               match &best_trade {
+                   Some((pool_addr, trade)) => {
+                       let p = match node.pools.get(&pool_addr) {
+                           Some(p) => p.pool.read().await,
+                           None => {
+                               println!("Pool não encontrada");
+                               return None;
+                           }
+                       };
 
+                       println!(
+                           "Trade: {} {} -> {} {}",
+                           self.get_symbol(if trade.from0 {
+                               &trade.token0
+                           } else {
+                               &trade.token1
+                           })
+                           .await,
+                           trade.amount_in,
+                           self.get_symbol(if trade.from0 {
+                               &trade.token1
+                           } else {
+                               &trade.token0
+                           })
+                           .await,
+                           trade.amount_out
+                       );
+
+                       println!("em {} {} {}", p.get_dex(), p.get_version(), p.get_fee());
+                   }
+                   None => {
+                       println!("Nenhuma trade encontrada");
+                       return None;
+                   }
+               }
+        */
         best_trade
     }
     pub async fn calculate_path(&mut self, path: &[H160], amount_in: U256) -> (Vec<Trade>, U256) {
