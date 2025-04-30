@@ -11,7 +11,9 @@ use num_traits::{FromPrimitive, Zero};
 use std::{fmt::Debug, i128, ops::{Div, Mul}, str::FromStr, string, sync::Arc};
 use tokio::sync::RwLock;
 
-use crate::pool::{Pool, V2Pool, V3Pool};
+use crate::pool::{Pool, PoolUpdateError};
+use crate::v2_pool::V2Pool;
+use crate::v3_pool::V3Pool;
 
 #[derive(Debug)]
 pub enum AnyPool {
@@ -179,7 +181,7 @@ impl AnyPool {
 
 }
 impl Pool for AnyPool {
-    async fn update(&mut self) {
+    async fn update(&mut self) -> Result<(), PoolUpdateError> {
         match self {
             AnyPool::V2(v2_pool) => v2_pool.update().await,
             AnyPool::V3(v3_pool) => v3_pool.update().await,

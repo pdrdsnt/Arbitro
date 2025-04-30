@@ -21,4 +21,6 @@ rayon = "1.10.0"
 crossbeam-channel = "0.5.15"
 thiserror = "2.0.12"
 ethers-providers = "2.0.14"
+clap = "4.5.37"
+async-trait = "0.1.88"
 

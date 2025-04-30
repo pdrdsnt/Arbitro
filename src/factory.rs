@@ -1,71 +1,63 @@
 use ethers::{
     contract::Contract,
-    providers::{Provider, Http},
+    providers::{Http, Provider},
     types::H160,
 };
 use std::{collections::HashMap, sync::Arc, vec};
 use tokio::sync::RwLock;
 
 use crate::{
-    mult_provider::MultiProvider, pair::Pair, pool_utils::{AbisData, AnyPool}, token::Token, v2_pool::V2Pool, v3_pool::V3Pool
+    mult_provider::MultiProvider,
+    pair::Pair,
+    pool_utils::{AbisData, AnyPool},
+    token::Token,
+    v2_pool::V2Pool,
+    v3_pool::V3Pool,
 };
 
 #[derive(Clone)]
-pub struct Dex {
+pub struct Factory {
     pub name: String,
     pub factory: Contract<Provider<MultiProvider>>,
-    // Pools grouped by Pair
-    pub pools: HashMap<Pair, Vec<Arc<RwLock<AnyPool>>>>,
-    // New field: a HashMap storing shared references to pools (keyed by the pool's address)
-    pub pools_by_address: HashMap<H160, Arc<RwLock<AnyPool>>>,
 }
 
 #[derive(Clone)]
-pub enum AnyDex {
-    V2(Dex, Arc<AbisData>),
-    V3(Dex, Arc<AbisData>),
+pub enum AnyFactory {
+    V2(Factory, Arc<AbisData>),
+    V3(Factory, Arc<AbisData>),
 }
 
-impl AnyDex {
+impl AnyFactory {
     pub fn supported_fees(&self) -> &'static [u32] {
         match self {
-            AnyDex::V2(_, _) => &[3000],  // All V2 DEXes use 0.3% fee
-            AnyDex::V3(dex, _) => match dex.name.as_str() {
+            AnyFactory::V2(_, _) => &[3000], // All V2 DEXes use 0.3% fee
+            AnyFactory::V3(dex, _) => match dex.name.as_str() {
                 // Major DEXs
-                "pancake" => &[500, 2500, 10000],     // PancakeSwap V3
-                "uniswap" => &[500, 3000, 10000],     // Uniswap V3
-                "mdex" => &[500, 2000, 10000],        // MDEX V3
-                "apeswap" => &[500, 2500, 5000],      // ApeSwap V3
-                "biswap" => &[1000, 2000, 3000],      // Biswap V3
-                "sushi" => &[500, 3000, 10000],       // SushiSwap V3
-                "wault" => &[500, 1500, 3000],        // Wault V3
-                "cheeseswap" => &[800, 2000, 5000],   // CheeseSwap V3
-                
+                "pancake" => &[500, 2500, 10000], // PancakeSwap V3
+                "uniswap" => &[500, 3000, 10000], // Uniswap V3
+                "mdex" => &[500, 2000, 10000],    // MDEX V3
+                "apeswap" => &[500, 2500, 5000],  // ApeSwap V3
+                "biswap" => &[1000, 2000, 3000],  // Biswap V3
+                "sushi" => &[500, 3000, 10000],   // SushiSwap V3
+                "wault" => &[500, 1500, 3000],    // Wault V3
+                "cheeseswap" => &[800, 2000, 5000], // CheeseSwap V3
+
                 // Stablecoin-focused DEXs
-                "ellipsis" => &[100, 500, 2000],      // Ellipsis V3
-                "belt" => &[100, 400, 1500],          // Belt Finance V3
-                
+                "ellipsis" => &[100, 500, 2000], // Ellipsis V3
+                "belt" => &[100, 400, 1500],     // Belt Finance V3
+
                 // Specialized DEXs
-                "alpaca" => &[500, 2000, 5000],       // Alpaca Finance V3
-                "babyswap" => &[500, 1500, 3000],     // BabySwap V3
-                
-                _ => &[]                              // Unknown DEX
+                "alpaca" => &[500, 2000, 5000],   // Alpaca Finance V3
+                "babyswap" => &[500, 1500, 3000], // BabySwap V3
+
+                _ => &[], // Unknown DEX
             },
         }
     }
 
-    pub fn new(
-        name: String,
-        v2: bool,
-        factory: Contract<Provider<MultiProvider>>,
-        pool_abi: Arc<AbisData>,
-    ) -> Self {
-        let dex = Dex {
-            name,
-            factory,
-            pools: HashMap::new(),
-            pools_by_address: HashMap::new(), // Initialize as an empty map
-        };
+    pub fn new(name: String, v2: bool, factory: Contract<Provider<MultiProvider>>, pool_abi: Arc<AbisData>) -> Self {
+        let dex = Factory { name, factory };
+
         if v2 {
             Self::V2(dex, pool_abi)
         } else {
@@ -88,7 +80,7 @@ impl AnyDex {
         let b = pair.b.clone();
 
         match self {
-            AnyDex::V2(dex, v2_pool_abi) => {
+            AnyFactory::V2(dex, v2_pool_abi) => {
                 let method = dex
                     .factory
                     .method::<(H160, H160), H160>("getPair", (a, b))
@@ -131,15 +123,7 @@ impl AnyDex {
                     .await;
 
                     let pool_ref = Arc::new(RwLock::new(AnyPool::V2(v2_pool)));
-                    let pool_vec = vec![pool_ref.clone()];
-
-                    dex.pools
-                        .entry(pair.clone())
-                        .and_modify(|v| *v = pool_vec.clone())
-                        .or_insert(pool_vec);
-
-                    // Save the pool reference keyed by its address.
-                    dex.pools_by_address.insert(address, pool_ref.clone());
+                    let pool_vec: Vec<Arc<RwLock<AnyPool>>> = vec![pool_ref.clone()];
 
                     println!("New pool created, returned {}", address);
                     Some(pool_ref)
@@ -147,7 +131,7 @@ impl AnyDex {
                     None
                 }
             }
-            AnyDex::V3(dex, v3_pool_abi) => {
+            AnyFactory::V3(dex, v3_pool_abi) => {
                 let method = match dex
                     .factory
                     .method::<(H160, H160, u32), H160>("getPool", (a, b, fee))
@@ -199,14 +183,6 @@ impl AnyDex {
                     let pool_ref = Arc::new(RwLock::new(AnyPool::V3(v3_pool)));
                     let pool_vec = vec![pool_ref.clone()];
 
-                    dex.pools
-                        .entry(pair.clone())
-                        .and_modify(|v| *v = pool_vec.clone())
-                        .or_insert(pool_vec);
-
-                    // Save pool reference keyed by its address.
-                    dex.pools_by_address.insert(address, pool_ref.clone());
-
                     println!("New pool created, returned {}", address);
                     Some(pool_ref)
                 } else {
@@ -215,37 +191,30 @@ impl AnyDex {
             }
         }
     }
-    pub fn get_pool_by_address(&self, address: H160) -> Option<Arc<RwLock<AnyPool>>> {
-        match self {
-            AnyDex::V2(dex, _) | AnyDex::V3(dex, _) => {
-                // Retrieve the pool from the map using the address.
-                dex.pools_by_address.get(&address).cloned()
-            }
-        }
-    }pub async fn add_pool(&mut self, pair: Pair, pool: Arc<RwLock<AnyPool>>) {
-        match self {
-            AnyDex::V2(dex, _) | 
-            AnyDex::V3(dex, _) => {
-                let address = {
-                    let guard = pool.read().await; // Espera assincronamente
-                    guard.get_address()
-                };
-                dex.pools_by_address.insert(address, pool.clone());
-                dex.pools.entry(pair).or_default().push(pool);
-            }
-        }
-    }
+   
 
     pub fn get_name(&self) -> &str {
         match self {
-            AnyDex::V2(dex, _) | AnyDex::V3(dex, _) => &dex.name,
+            AnyFactory::V2(dex, _) | AnyFactory::V3(dex, _) => &dex.name,
         }
     }
 
     pub fn get_version(&self) -> &str {
         match self {
-            AnyDex::V2(_, _) => "v2",
-            AnyDex::V3(_, _) => "v3",
+            AnyFactory::V2(_, _) => "v2",
+            AnyFactory::V3(_, _) => "v3",
+        }
+    }
+
+    pub fn get_factory(&self) -> &Contract<Provider<MultiProvider>> {
+        match self {
+            AnyFactory::V2(dex, _) | AnyFactory::V3(dex, _) => &dex.factory,
+        }
+    }
+
+    pub fn get_address(&self) -> H160 {
+        match self {
+            AnyFactory::V2(dex, _) | AnyFactory::V3(dex, _) => dex.factory.address(),
         }
     }
 }

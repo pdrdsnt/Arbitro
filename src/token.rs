@@ -19,7 +19,7 @@ use sqlx::pool;
 use tokio::sync::RwLock;
 
 use crate::{
-    arbitro::{self, Arbitro}, mult_provider::MultiProvider, pool::{Pool, V2Pool}, pool_utils::{AnyPool, PoolDir, Trade}
+    arbitro::{self, Arbitro}, mult_provider::MultiProvider, pool::Pool, pool_utils::{AnyPool, PoolDir, Trade}
 };
 
 #[derive(Debug, Clone)]

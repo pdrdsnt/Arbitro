@@ -1,27 +1,33 @@
 #![allow(warnings)]
-
+mod factory;
+mod anvil_test;
 mod arbitro;
 mod blockchain_db;
 mod dex;
+mod mem_pool;
+mod mult_provider;
 mod pair;
 mod pool;
 mod pool_utils;
 mod token;
-mod mult_provider;
+mod seeker;
+mod v2_pool;
+mod v3_pool;
 
-use mult_provider::MultiProvider;
 use abi::{Abi, Address};
 use arbitro::Arbitro;
 use axum::extract::path;
-use blockchain_db::{BlockChainsModel, DexModel, TokenModel};
+use blockchain_db::{ABIModel, BlockChainsModel, DexModel, TokenModel};
 use dex::{AnyDex, Dex};
 use ethers::abi::{encode, Detokenize, Tokenizable};
 use ethers::utils::hex;
 use ethers::{contract::*, core::k256::elliptic_curve::consts::U2, prelude::*};
+use mult_provider::MultiProvider;
 use pair::Pair;
-use pool::{Pool, V2Pool};
+use pool::Pool;
 use pool_utils::{AbisData, Trade};
 use serde_json::{json, Value};
+use std::collections::HashSet;
 use std::env::home_dir;
 use std::fs;
 use std::process::Command;
@@ -30,24 +36,145 @@ use std::{collections::HashMap, path::Path, str::FromStr, sync::Arc};
 use tokio::{sync::RwLock, time::error::Error};
 
 #[tokio::main]
-async fn main() -> Result<(), Error> {
-        let urls = vec!["https://bsc-rpc.publicnode.com".to_string(), "https://bsc-dataseed.binance.org/".to_string()];
+async fn main() -> Result<(), ethers::providers::ProviderError> {
+    let mut urls = vec![
+        "https://bsc-rpc.publicnode.com".to_string(),
+        "https://bsc-dataseed.binance.org/".to_string(),
+        // Additional endpoints
+        "https://bsc-dataseed.bnbchain.org".to_string(),
+        "https://bsc-dataseed.nariox.org".to_string(),
+        "https://bsc-dataseed.defibit.io".to_string(),
+        "https://bsc-mainnet.public.blastapi.io".to_string(),
+        "https://go.getblock.io/84ccc9310a1f40ce9efa177d3e949b3c".to_string(),
+    ];
 
-        // Wrap into ethers Provider
-        let mut mult_provider: MultiProvider = mult_provider::MultiProvider::new(urls, Duration::from_secs(30));
+    // Wrap into ethers Provider
+    let mut mult_provider: MultiProvider =
+        mult_provider::MultiProvider::new(urls, Duration::from_secs(5), 3);
+
+    let provider = Provider::<MultiProvider>::new(mult_provider);
+    let chains_data = BlockChainsModel::new("src/chainsData.json").unwrap();
+    let _dexes = &chains_data.chains[0].dexes;
+    let _tokens = &chains_data.chains[0].tokens;
+
+    let abis = load_abis(&chains_data.chains[0].abis);
+
+    // 1. Get basic stats
+    let block: U64 = provider.get_block_number().await.unwrap();
+    let v: Value = provider
+        .request("txpool_content", Vec::<Value>::new())
+        .await
+        .unwrap();
+    println!("txpool_status: {:#}", block);
+
+    let abis_arc = Arc::new(abis);
+    let mut path = Vec::<Trade>::new();
+    let arc_provider = Arc::new(provider);
+    let mut arbitro = Arbitro::new(_dexes, _tokens, arc_provider.clone(), abis_arc);
+    arbitro.create_pools().await;
+
+    // 2. Get full contents
+    let content: Vec<TransactionReceipt> = arc_provider.get_block_receipts(block).await.unwrap();
+
+    let pool_addrs: HashSet<H160> = arbitro.pools_lookup.iter().map(|(pool, _)| *pool).collect();
+    inspect_block(&*arc_provider, block, &pool_addrs);
+
+    let last_token_address = H160::from_str(_tokens.last().unwrap().address.as_str()).unwrap();
+    let amount_in = U256::exp10(18);
+    let tokens = arbitro.tokens.clone();
+    let mut _block = U64::from(0);
+    loop {
+        let block = arc_provider.get_block_number().await?;
+        if block == _block {
+            continue;
+        }
+        _block = block;
+
+        let r = find_first_arbitrage_path(&mut arbitro, &tokens, amount_in).await;
+        inspect_block(&arc_provider, block, &pool_addrs).await?;
+        arbitro.update_pools().await;
+
+        for _token in tokens.iter() {
+            let token = _token.read().await;
+           
+            let _paths = arbitro.arbitrage(&token.address, amount_in).await;
+            if _paths.is_empty() {
+                println!("No arbitrage paths found for token {}", token.name);
+                continue;
+            } else {
+                path = _paths[0].clone();
+            }
+        }
+        println!("=============================");
+        tokio::time::sleep(Duration::from_secs(10)).await;
         
-        let provider = Provider::<MultiProvider>::new(mult_provider);
-        let chains_data = BlockChainsModel::new("src/chainsData.json").unwrap();
-        let _dexes = &chains_data.chains[0].dexes;
-        let _tokens = &chains_data.chains[0].tokens;
+    }
 
-    let abis = &chains_data.chains[0].abis;
+    Ok(())
+}
 
+use ethers::abi::{InvalidOutputType, Token};
+pub async fn find_first_arbitrage_path(
+    arbitro: &mut Arbitro,
+    tokens: &[Arc<RwLock<token::Token>>],
+    amount_in: U256,
+) -> Option<Vec<Trade>> {
+    for token_lock in tokens {
+        let token = token_lock.read().await;
+        let paths = arbitro.arbitrage(&token.address, amount_in).await;
+        if paths.is_empty() {
+            println!("No arbitrage paths found for token {}", token.name);
+            continue;
+        }
+        // got at least one, return its first path
+        return Some(paths[0].clone());
+    }
+    // none of the tokens yielded any paths
+    None
+}
+async fn inspect_block(
+    arc_provider: &Provider<MultiProvider>,
+    block: U64,
+    // your lookup of pool addresses
+    pool_addrs: &HashSet<H160>,
+) -> Result<(), ethers::providers::ProviderError> {
+    // thresholds for “big”
+    // here: > 100 ETH (100 * 10^18 wei)
+    let VALUE_THRESHOLD: U256 = U256::exp10(20);
+    // here: nonce > 1000
+    const NONCE_THRESHOLD: u64 = 100;
+
+    // 1. Get all receipts
+    let receipts: Vec<TransactionReceipt> = arc_provider.get_block_receipts(block).await?;
+
+    for receipt in receipts {
+        // 2. Quick pool‐filter on the `to` field of the receipt
+        if let Some(to_addr) = receipt.to {
+            if pool_addrs.contains(&to_addr) {
+                println!("▷ Receipt TO one of our pools: {:?}", to_addr);
+            }
+        }
+
+        // 3. Fetch the full Transaction so we can see `value` & `nonce`
+        let tx_hash: H256 = receipt.transaction_hash;
+        if let Some(tx) = arc_provider.get_transaction(tx_hash).await? {
+            // 4. Check for a “big value” tx
+            if tx.value > VALUE_THRESHOLD {
+                println!("🔶 High-value tx (> {} wei):\n{:#?}", VALUE_THRESHOLD, tx);
+            }
+
+        }
+    }
+
+    Ok(())
+}
+// Function to load ABIs
+fn load_abis(abis: &ABIModel) -> AbisData {
     let v2_factory_abi_json = serde_json::to_string(&abis.v2_factory_abi).unwrap();
     let v2_factory_abi_ethers = serde_json::from_str::<Abi>(&v2_factory_abi_json).unwrap();
 
     let bep_20_abi_json = serde_json::to_string(&abis.bep_20_abi).unwrap();
-    let bep_20_abi_ethers = serde_json::from_str::<Abi>(&bep_20_abi_json).unwrap();
+    let bep_20_abi_ethers: Abi = serde_json::from_str::<Abi>(&bep_20_abi_json).unwrap();
 
     let v3_factory_abi_json = serde_json::to_string(&abis.v3_factory_abi).unwrap();
     let v3_factory_abi_ethers = serde_json::from_str::<Abi>(&v3_factory_abi_json).unwrap();
@@ -58,124 +185,14 @@ async fn main() -> Result<(), Error> {
     let v3_pool_abi_json = serde_json::to_string(&abis.v3_pool_abi).unwrap();
     let v3_pool_abi_ethers = serde_json::from_str::<Abi>(&v3_pool_abi_json).unwrap();
 
-    let abis = AbisData {
+    AbisData {
         v2_factory: v2_factory_abi_ethers,
         v2_pool: v2_pool_abi_ethers,
         v3_factory: v3_factory_abi_ethers,
         v3_pool: v3_pool_abi_ethers,
         bep_20: bep_20_abi_ethers,
-    };
-
-    // 1. Get basic stats
-    let block: U64 = provider.get_block_number().await.unwrap();
-    let v: Value = provider.request("txpool_content", Vec::<Value>::new()).await.unwrap();
-    println!("txpool_status: {:#}", block);
-
-    // 2. Get full contents
-    let content: Vec<TransactionReceipt> = provider.get_block_receipts(block).await.unwrap();
-    println!("txpool_content: {:?}", content);
-
-    for transaction in content.iter() {
-        println!("Transaction: {:?}", transaction);
     }
-
-    return Ok(());
-
-    let abis_arc = Arc::new(abis);
-    let mut path = Vec::<Trade>::new();
-    let mut arbitro = Arbitro::new(_dexes, _tokens, Arc::new(provider), abis_arc);
-    arbitro.create_pools().await;
-    let last_token_address = H160::from_str(_tokens.last().unwrap().address.as_str()).unwrap();
-    let amount_in = U256::exp10(18);
-    let tokens = arbitro.tokens.clone();
-    for _token in tokens.iter() {
-        let token = _token.read().await;
-
-        let _paths = arbitro.arbitrage(&token.address, amount_in).await;
-        if _paths.is_empty() {
-            println!("No arbitrage paths found for token {}", token.name);
-            continue;
-        } else {
-            path = _paths[0].clone();
-        }
-    }
-
-    // Corrected ABI encoding flow
-    let mut pool_tokens = Vec::with_capacity(path.len());
-
-    for trade in &path {
-        // 1. Encode PoolKey components
-        let currency0 = Token::Address(trade.token0);
-
-        let currency1 = Token::Address(trade.token1);
-
-        // 2. Verify fee fits in uint24 (0-16,777,215)
-        if trade.fee > 16_777_215 {
-            panic!("Invalid fee {} exceeds uint24 max", trade.fee);
-        }
-
-        // 3. Encode PoolKey as nested tuple
-        let pool_key = Token::Tuple(vec![
-            currency0,
-            currency1,
-            Token::Uint(U256::from(trade.fee)),
-            Token::Int(U256::from(0i32)), // tick_spacing
-            Token::Address(H160::zero()), // hooks
-        ]);
-
-        // 4. Map pool types to match EXACT Solidity enum order
-        let pool_type_u8 = match (trade.version.as_str(), trade.dex.to_lowercase().as_str()) {
-            ("v2", "pancake") => 1,
-            ("v2", _) => 0,
-            ("v3", "pancake") => 3,
-            ("v3", _) => 2,
-            ("v4", "pancake") => 5,
-            ("v4", _) => 4,
-            _ => panic!("Invalid version/dex combo"),
-        };
-
-        // 5. Create PoolSpec tuple with EXACT struct field order
-        pool_tokens.push(Token::Tuple(vec![
-            Token::Address(trade.pool),            // addr
-            pool_key,                              // PoolKey
-            Token::Uint(U256::from(pool_type_u8)), // pool_type
-            Token::Bool(trade.from0),              // from0
-        ]));
-    }
-    println!("Encoded PoolSpec count: {}", pool_tokens.len());
-    for (i, spec) in pool_tokens.iter().enumerate() {
-        println!("Pool {}: {:?}", i, spec);
-    }
-    // Final encoding must be a TUPLE containing array + amount
-
-    let payload = encode(&[Token::Array(pool_tokens), Token::Uint(amount_in)]);
-
-    let home = home_dir().expect("no HOME defined");
-    let args_path = Path::new("forge/script/pools_input.txt");
-    fs::write(home.join(args_path), &payload).expect("Failed to write to file");
-    println!("payload: {:?}", &payload);
-    let block_number = provider.get_block_number().await.unwrap().to_string();
-
-    let forge_dir = home.join("forge");
-    let output = Command::new("forge")
-        .current_dir(forge_dir)
-        .arg("script")
-        // fully‑qualified script name
-        .arg("script/ArbitroTester.sol:ArbitroTester")
-        .arg("--fork-url")
-        .arg("http://localhost:8545")
-        .arg("--fork-block-number")
-        .arg(block_number)
-        .output()
-        .expect("failed to run forge");
-
-    println!("forge stdout:\n{}", String::from_utf8_lossy(&output.stdout));
-    println!("forge stderr:\n{}", String::from_utf8_lossy(&output.stderr));
-    Ok(())
 }
-
-use ethers::abi::{InvalidOutputType, Token};
-
 #[derive(Clone, Debug)]
 struct Currency {
     // Assuming Currency has its own fields, adjust accordingly
@@ -411,4 +428,27 @@ fn int_to_uint256(x: i32) -> U256 {
         let mag = U256::from((-x) as u64);
         (!mag).overflowing_add(U256::one()).0
     }
+}
+
+async fn test_round_robin_fallback() {
+    // 1) First URL is invalid → will error immediately
+    // 2) Second URL is a known-working public BSC RPC endpoint
+    let urls = vec![
+        "http://127.0.0.1:12345".to_string(),         // no server here
+        "https://bsc-rpc.publicnode.com".to_string(), // should succeed
+    ];
+
+    // zero backoff so we don’t wait between retries
+    let mp = MultiProvider::new(urls, Duration::from_secs(0),2);
+    let provider = Provider::new(mp);
+
+    // Use a standard RPC method with no params:
+    // “net_version” returns the chain ID as a string
+    let chain_id: String = provider
+        .request("net_version", Vec::<Value>::new())
+        .await
+        .expect("fallback failed to reach working node");
+
+    // On BSC mainnet you should get “56”
+    assert_eq!(chain_id, "56", "expected BSC chain ID 56");
 }

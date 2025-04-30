@@ -8,7 +8,7 @@ use ethers::{
     utils::hex::ToHex,
 };
 
-use futures::{stream::FuturesUnordered, StreamExt};
+use futures::{future::join_all, stream::FuturesUnordered, StreamExt};
 use num_traits::{Float, FromPrimitive};
 use sqlx::any;
 use std::{
@@ -32,13 +32,21 @@ use std::{
 //calculate the best path
 
 use crate::{
-    blockchain_db::{DexModel, TokenModel}, dex::{self, AnyDex, Dex}, mult_provider::MultiProvider, pair::{self, Pair}, pool::{self, Pool, V2Pool}, pool_utils::{AbisData, AnyPool, PoolDir, Trade}, token::Token
+    blockchain_db::{DexModel, TokenModel},
+    dex::{self, AnyDex, Dex},
+    mult_provider::MultiProvider,
+    pair::{self, Pair},
+    pool::{self, Pool},
+    pool_utils::{AbisData, AnyPool, PoolDir, Trade},
+    token::Token,
 };
 use bigdecimal::ToPrimitive;
 use futures::future;
 use tokio::sync::{RwLock, Semaphore};
 
 pub struct Arbitro {
+    pub pools: Vec<Arc<RwLock<AnyPool>>>,
+    pub pools_lookup: HashMap<H160, usize>,
     pub dexes: Vec<AnyDex>,
     pub tokens: Vec<Arc<RwLock<Token>>>,
     pub tokens_lookup: HashMap<H160, usize>,
@@ -53,6 +61,8 @@ impl Arbitro {
         abis: Arc<AbisData>,
     ) -> Self {
         let mut arbitro: Arbitro = Arbitro {
+            pools: vec![],
+            pools_lookup: HashMap::new(),
             dexes: vec![],
             tokens: vec![],
             tokens_lookup: HashMap::new(),
@@ -136,7 +146,10 @@ impl Arbitro {
             };
 
             addresses.push(addr);
-            let token_contract: ethers::contract::ContractInstance<Arc<Provider<MultiProvider>>, Provider<MultiProvider>> = Contract::new(addr, abis.bep_20.clone(), provider.clone());
+            let token_contract: ethers::contract::ContractInstance<
+                Arc<Provider<MultiProvider>>,
+                Provider<MultiProvider>,
+            > = Contract::new(addr, abis.bep_20.clone(), provider.clone());
 
             println!("Token criado: {}", token_data.name);
             _tkns.push(Arc::new(RwLock::new(Token::new(
@@ -164,11 +177,11 @@ impl Arbitro {
             }))
             .collect()
             .await;
-            
+
         if tokens_addresses.len() < 2 {
             return;
         }
-        let semaphore = Arc::new(Semaphore::new(6)); // Limit to 10 concurrent requests
+        let semaphore = Arc::new(Semaphore::new(30)); // Limit to 10 concurrent requests
 
         // 2) Prepare a task for every (token0, token1, dex, fee) combination:
         let mut tasks = FuturesUnordered::new();
@@ -226,11 +239,32 @@ impl Arbitro {
                 let mut t0 = self.tokens[t0_idx].write().await;
                 let mut t1 = self.tokens[t1_idx].write().await;
                 t0.add_pool(pool.clone(), from0).await;
-                t1.add_pool(pool, !from0).await;
+                t1.add_pool(pool.clone(), !from0).await;
+
+                self.pools.push(pool.clone());
+                self.pools_lookup
+                    .insert(pool.read().await.get_address(), self.pools.len() - 1);
             }
         }
     }
-
+    pub async fn update_pools(&mut self) {
+        println!("Starting update for pools: {}", self.pools.len());
+    
+        // build a Vec of update futures
+        let updates = self.pools.iter().map(|pool| {
+            async move {
+                // get a write-lock on this pool
+                let mut guard = pool.write().await;
+                println!("Starting update for pool: {:?}", guard.get_dex());
+                if let Err(err) = guard.update().await {
+                    eprintln!("Error updating pool {:?}: {:?}", guard.get_dex(), err);
+                }
+            }
+        });
+    
+        // run them all concurrently
+        join_all(updates).await;
+    }
     pub async fn arbitrage(&mut self, from: &H160, amount_in: U256) -> Vec<Vec<Trade>> {
         let forward_paths = self.find_foward_paths(from).await;
         let mut profitable_paths = Vec::new();
@@ -586,7 +620,10 @@ impl Arbitro {
 
         for pool_addr in pools_with {
             if let Some(pool) = node.pools.get(&pool_addr) {
+                //pool.pool.write().await.update().await;
+
                 let pool_guard = pool.pool.read().await;
+
                 //println!("-- {} --", pool_guard.get_address());
                 //println!(
                 //    "pool: {:?} {} {}",
