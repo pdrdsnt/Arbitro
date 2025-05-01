@@ -3,7 +3,7 @@ use std::{
     sync::{Arc, RwLock},
 };
 
-use ethers::types::H160;
+use ethers::{middleware::transformer::ds_proxy::factory, types::H160};
 
 use crate::{factory::AnyFactory, pool_utils::AnyPool, token::Token};
 /// A container that holds a Vec of (address, value) pairs and a lookup map from address to index.
@@ -76,10 +76,6 @@ pub struct ChainObserver {
     pools: MappedVec<Arc<RwLock<AnyPool>>>,
     tokens: MappedVec<Arc<RwLock<Token>>>,
     factories: MappedVec<Arc<RwLock<AnyFactory>>>,
-    /// Maps pool address to its two token addresses
-    tokens_by_pool: HashMap<H160, [H160; 2]>,
-    /// Maps token address to a map of pool addresses and pools
-    pools_by_token: HashMap<H160, HashMap<H160, Arc<RwLock<AnyPool>>>>,
 }
 
 impl ChainObserver {
@@ -89,9 +85,25 @@ impl ChainObserver {
             pools: MappedVec::new(),
             tokens: MappedVec::new(),
             factories: MappedVec::new(),
-            tokens_by_pool: HashMap::new(),
-            pools_by_token: HashMap::new(),
         }
+    }
+
+    pub async fn search_pools(&self, token0: &H160,token1: &H160) -> Vec<H160> {
+        let mut founded_pools = Vec::new();
+        for factory in self.factories.values() {
+            let fees = {
+                let factory_read = factory.read().unwrap();
+                factory_read.supported_fees().to_vec()
+            };
+            for fee in fees
+            {
+                if let Some(va) = factory.write().unwrap().get_pool(token0, token1, &fee, &20).await {
+                    founded_pools.push(va);
+                }
+        
+            }
+        }
+        founded_pools
     }
 
     /// Inserts or updates a pool.
@@ -103,17 +115,6 @@ impl ChainObserver {
 
         // 1) add to main pool list
         self.pools.insert(addr, pool.clone());
-
-        // 2) record which two tokens this pool has
-        self.tokens_by_pool.insert(addr, [tok0, tok1]);
-
-        // 3) for each token, register the pool
-        for &tk in &[tok0, tok1] {
-            self.pools_by_token
-                .entry(tk)
-                .or_default()
-                .insert(addr, pool.clone());
-        }
     }
 
     /// Inserts or updates a token.
@@ -131,11 +132,6 @@ impl ChainObserver {
     /// Retrieves a pool by address.
     pub fn get_pool(&self, addr: &H160) -> Option<&Arc<RwLock<AnyPool>>> {
         self.pools.get(addr)
-    }
-
-    /// Retrieves all pools for a given token.
-    pub fn pools_for_token(&self, token: &H160) -> Option<impl Iterator<Item=&Arc<RwLock<AnyPool>>>> {
-        self.pools_by_token.get(token).map(|map| map.values())
     }
 
     /// Retrieves a token by address.
