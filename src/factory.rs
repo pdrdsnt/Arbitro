@@ -1,6 +1,6 @@
 use ethers::{
     abi::token,
-    contract::Contract,
+    contract::{self, Contract},
     providers::{Http, Provider},
     types::H160,
 };
@@ -10,10 +10,7 @@ use tokio::sync::RwLock;
 use crate::{
     mult_provider::MultiProvider,
     pair::Pair,
-    pool_utils::{AbisData, AnyPool},
     token::Token,
-    v2_pool::V2Pool,
-    v3_pool::V3Pool,
 };
 
 #[derive(Debug, Clone)]
@@ -30,6 +27,11 @@ pub struct Factory {
     pub name: String,
     pub factory: Contract<Provider<MultiProvider>>,
     pub pools: Vec<PoolData>,
+}
+impl Factory {
+    pub fn new(name: String, contract: Contract<Provider<MultiProvider>>) -> Self {
+        Self { name, factory: contract, pools: Vec::new() }
+    }
 }
 
 #[derive(Clone)]

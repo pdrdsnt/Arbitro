@@ -1,11 +1,11 @@
 use ethers::{abi::Address, contract::Contract, types::U256};
 use ethers_providers::Provider;
 
-use crate::{mult_provider::MultiProvider, pool::{Pool, PoolUpdateError}, pool_utils::Trade, token::Token};
+use crate::{mult_provider::MultiProvider, trade::Trade, token::Token};
 
 
 #[derive(Debug)]
-pub struct V2Pool {
+pub struct V2PoolSim {
     pub address: Address,
     pub token0: Token,
     pub token1: Token,
@@ -14,19 +14,19 @@ pub struct V2Pool {
     pub fee: u32,
     pub reserves0: U256,
     pub reserves1: U256,
-    pub contract: Contract<Provider<MultiProvider>>,
 }
 
-impl V2Pool {
+impl V2PoolSim {
     // Private constructor
-    async fn new(
+    pub fn new(
         exchange: String,
         version: String,
         fee: u32,
         address: Address,
         token0: Token,
         token1: Token,
-        contract: Contract<Provider<MultiProvider>>,
+        reserves0: U256,
+        reserves1: U256,
     ) -> Self {
         Self {
             address,
@@ -35,56 +35,12 @@ impl V2Pool {
             exchange,
             version,
             fee,
-            reserves0: U256::from(0),
-            reserves1: U256::from(0),
-            contract,
+            reserves0,
+            reserves1
         }
     }
 
-    pub async fn new_with_update(
-        exchange: String,
-        version: String,
-        fee: u32,
-        address: Address,
-        token0: Token,
-        token1: Token,
-        contract: Contract<Provider<MultiProvider>>,
-    ) -> Self {
-        let mut instance =
-            V2Pool::new(exchange, version, fee, address, token0, token1, contract).await;
-        instance.update().await;
-        instance
-    }
-}
-
-
-impl Pool for V2Pool {
-    async fn update(&mut self) -> Result<(), PoolUpdateError> {
-        let reserves_call_result = self
-            .contract
-            .method::<(), (U256, U256, U256)>("getReserves", ());
-        match reserves_call_result {
-            Ok(reserves) => {
-                let var = reserves.call_raw().await;
-                println!("reserves {:?}", var);
-                match var {
-                    Ok((reserve0, reserve1, time)) => {
-                        self.reserves0 = reserve0;
-                        self.reserves1 = reserve1;
-                        Ok(())
-                    }
-                    Err(erro) => {println!("contract call error {}", erro);
-                        return Err(PoolUpdateError::from(erro));
-                    }
-                }},
-            Err(erro) => {
-                println!("abi erro {}", erro);
-                return Err(PoolUpdateError::from(erro));
-            },
-        }
-    }
-
-    fn trade(&self, amount_in: U256, from0: bool) -> Option<Trade> {
+    pub fn trade(&self, amount_in: U256, from0: bool) -> Option<Trade> {
         if (from0 && self.reserves0 == U256::zero()) || (!from0 && self.reserves1 == U256::zero()) {
             return None;
         }

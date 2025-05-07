@@ -18,9 +18,7 @@ use num_traits::{real::Real, FromPrimitive, ToPrimitive};
 use sqlx::pool;
 use tokio::sync::RwLock;
 
-use crate::{
-    arbitro::{self, Arbitro}, mult_provider::MultiProvider, pool::Pool, pool_utils::{AnyPool, PoolDir, Trade}
-};
+use crate::mult_provider::MultiProvider;
 
 #[derive(Debug, Clone)]
 pub struct Token {
@@ -29,8 +27,6 @@ pub struct Token {
     pub symbol: String,
     pub decimals: u8,
     pub contract: Contract<Provider<MultiProvider>>,
-    pub pools: HashMap<H160, PoolDir>,
-    pub pools_by_pair: HashMap<H160, HashSet<H160>>,
 }
 
 impl Token {
@@ -40,7 +36,7 @@ impl Token {
         symbol: String,
         decimals: u8,
         contract: Contract<Provider<MultiProvider>>,
-        pools: HashMap<H160, PoolDir>,
+       
     ) -> Self {
         Token {
             name,
@@ -48,137 +44,9 @@ impl Token {
             symbol,
             contract,
             decimals,
-            pools,
-            pools_by_pair: HashMap::new(),
         }
     }
 
-    pub async fn add_pool(&mut self, pool: Arc<RwLock<AnyPool>>, is0: bool) {
-        let pool_read = pool.read().await;
-        let pool_tokens = pool_read.get_tokens();
-        let pool_dir = PoolDir::new(pool.clone(), is0);
-        let other_node = if !is0 { pool_tokens[0] } else { pool_tokens[1] };
-
-        let pool_address = match &*pool_read {
-            AnyPool::V2(v2_pool) => v2_pool.address.clone(),
-            AnyPool::V3(v3_pool) => v3_pool.address.clone(),
-        };
-
-        let pool_version = match &*pool_read {
-            AnyPool::V2(v2_pool) => v2_pool.version.clone(),
-            AnyPool::V3(v3_pool) => v3_pool.version.clone(),
-        };
-
-        let pool_name = match &*pool_read {
-            AnyPool::V2(v2_pool) => v2_pool.exchange.clone(),
-            AnyPool::V3(v3_pool) => v3_pool.exchange.clone(),
-        };
-
-        let pool_fee = match &*pool_read {
-            AnyPool::V2(v2_pool) => v2_pool.fee.clone(),
-            AnyPool::V3(v3_pool) => v3_pool.fee.clone(),
-        };
-
-        match self.pools_by_pair.get_mut(&other_node) {
-            Some(mut pools) => {
-                pools.insert(pool_address.clone());
-            }
-            None => {
-                let mut new_pools = HashSet::new();
-                new_pools.insert(pool_address.clone());
-                self.pools_by_pair.insert(other_node, new_pools);
-            }
-        };
-
-        println!(
-            "added pool {} {} {} {} to token {} {} from0: {}",
-            &pool_address, pool_name, pool_version, pool_fee, self.name, self.address, is0
-        );
-
-        self.pools
-            .entry(pool_address)
-            .and_modify(|existing| {
-                *existing = pool_dir.clone();
-            })
-            .or_insert(pool_dir);
-    }
-
-    pub async fn update_pools(&mut self) {}
-
-    pub fn trades(&self, input: U256) -> HashMap<H160, Vec<Trade>> {
-        let mut output = HashMap::new();
-        let timeout = Duration::from_secs(2); // Adjust as needed
-
-        for (_, pool_dir) in &self.pools {
-            let pool_arc: Arc<RwLock<AnyPool>> = Arc::clone(&pool_dir.pool);
-            let start = Instant::now();
-            let mut pool_read = None;
-
-            // Attempt to acquire read lock with timeout
-            while Instant::now().duration_since(start) < timeout {
-                if let Ok(guard) = pool_arc.try_read() {
-                    pool_read = Some(guard);
-                    break;
-                }
-                std::thread::sleep(Duration::from_millis(10)); // Backoff
-            }
-
-            let pool_read = match pool_read {
-                Some(guard) => guard,
-                None => {
-                    println!("Timeout acquiring lock for pool");
-                    continue;
-                }
-            };
-            // Debug logging (consider using log crate for production)
-            println!(
-                "trying trade in: {:?} {:?} {:?}",
-                pool_read.get_dex(),
-                pool_read.get_version(),
-                pool_read.get_fee()
-            );
-
-            if let Some(trade_data) = pool_read.trade(input, pool_dir.is0) {
-                // Determine output token address
-                let output_token = if trade_data.from0 {
-                    trade_data.token1.clone()
-                } else {
-                    trade_data.token0.clone()
-                };
-
-                // Entry API with reference to avoid cloning
-                output
-                    .entry(output_token)
-                    .or_insert_with(Vec::new)
-                    .push(trade_data);
-            }
-        }
-
-        // Sort trades by descending amount_out using U256's native comparison
-        for trades in output.values_mut() {
-            trades.sort_by(|a, b| b.amount_out.cmp(&a.amount_out));
-        }
-
-        output
-    }
-
-    pub fn best_trade(&self, input: U256) -> Option<Trade> {
-        let mut trade = None;
-        let mut bigger_out = U256::from(0);
-        for (addr, pool) in self.pools.iter() {
-            let pool_read = pool.pool.blocking_read();
-            match pool_read.trade(input, pool.is0) {
-                Some(_trade) => {
-                    if _trade.amount_out > bigger_out {
-                        bigger_out = _trade.amount_out.clone();
-                        trade = Some(_trade);
-                    }
-                }
-                None => (),
-            };
-        }
-        trade
-    }
 }
 /*
 impl IntoConnections<H160, float32> for Token {
