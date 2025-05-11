@@ -56,17 +56,18 @@ impl V3PoolSrc {
         let spacing = match spacing_call_result {
             Ok(spacing) => spacing,
             Err(erro) => {
-                // println!("abi erro {}", erro);
+                println!("abi erro {}", erro);
                 return instance
             }
         };
+        println!("tick spacing {:?}", spacing);
         instance.tick_spacing = spacing;
 
         instance.update().await;
         instance
     }
 
-    pub async fn update(&mut self) -> Result<(), PoolUpdateError> {
+    pub async fn update(&mut self) -> Result<H160, PoolUpdateError> {
         let slot0_call_result = self
             .contract
             .method::<(), (U256, i32, U256, U256, U256, U256, bool)>("slot0", ());
@@ -118,7 +119,7 @@ impl V3PoolSrc {
 
         V3PoolSrc::update_active_ticks(self).await;
 
-        Ok(())
+        Ok(self.address)
     }
 
     async fn fetch_bitmap_words(

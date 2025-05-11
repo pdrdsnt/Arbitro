@@ -1,11 +1,18 @@
 use async_trait::async_trait;
-use ethers_providers::{JsonRpcClient, Provider, ProviderError};
-use futures::future::{BoxFuture, FutureExt};
+use ethers::types::{Block, Transaction, H256, U64};
+use ethers_providers::{
+    JsonRpcClient, Middleware, Provider, ProviderError, PubsubClient, SubscriptionStream, Ws,
+};
+use futures::future::{BoxFuture, FutureExt, SelectAll};
+use futures::stream::select_all;
+use futures::Stream;
+use rayon::vec;
 use serde::de::DeserializeOwned;
 use serde::Serialize;
-use serde_json::Value;
+use serde_json::{value::RawValue, Value};
 use std::cmp::{Ordering, Reverse};
 use std::fmt::Debug;
+use std::pin::Pin;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 use thiserror::Error;
@@ -26,6 +33,8 @@ pub enum MultiProviderError {
     AllBackoff,
     #[error("Request failed on all attempts: {0}")]
     RequestFailed(String),
+    #[error("Subscription failed: {0}")]
+    SubscriptionFailed(String),
 }
 
 impl ethers_providers::RpcError for MultiProviderError {
@@ -42,16 +51,15 @@ impl ethers_providers::RpcError for MultiProviderError {
             _ => true,
         }
     }
-    
+
     fn as_error_response(&self) -> Option<&ethers_providers::JsonRpcError> {
         todo!()
     }
-    
+
     fn as_serde_error(&self) -> Option<&serde_json::Error> {
         todo!()
     }
 }
-
 
 impl From<MultiProviderError> for ethers_providers::ProviderError {
     fn from(err: MultiProviderError) -> Self {
@@ -67,7 +75,11 @@ pub struct MultiProvider {
 }
 
 impl MultiProvider {
-    pub fn new(urls: Vec<String>, backoff: Duration, max_total_tries: usize) -> Self {
+    pub fn new(
+        urls: Vec<String>,
+        backoff: Duration,
+        max_total_tries: usize,
+    ) -> Self {
         let nodes = urls
             .into_iter()
             .map(|url| NodeState {
@@ -81,6 +93,11 @@ impl MultiProvider {
             backoff,
             max_total_tries,
         }
+    }
+    /// helper to call eth_blockNumber over HTTP
+    async fn get_block_number(&self) -> Result<U64, MultiProviderError> {
+        // just wrap the JsonRpcClient impl:
+        self.request("eth_blockNumber", Vec::<Value>::new()).await
     }
 
     /// Sends an RPC request, retrying across nodes with backoff

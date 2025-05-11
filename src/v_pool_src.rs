@@ -16,10 +16,10 @@ impl AnyPoolSrc {
     pub async fn update(
         &mut self,
        
-    ) -> Result<(), crate::err::PoolUpdateError> {
+    ) -> Result<H160, crate::err::PoolUpdateError> {
         match self {
-            AnyPoolSrc::V2(sim) => sim.update().await,
-            AnyPoolSrc::V3(sim) => sim.update().await,
+            AnyPoolSrc::V2(src) => src.update().await,
+            AnyPoolSrc::V3(src) => src.update().await,
         }
     }
 

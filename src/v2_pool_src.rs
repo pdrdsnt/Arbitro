@@ -32,35 +32,13 @@ impl V2PoolSrc {
         token1: Arc<RwLock<Token>>,
         contract: Contract<Provider<MultiProvider>>,
     ) -> Self {
-        Self {
-            address,
-            token0,
-            token1,
-            exchange,
-            version,
-            fee,
-            reserves0: U256::from(0),
-            reserves1: U256::from(0),
-            contract,
-        }
-    }
-
-    pub async fn new_with_update(
-        exchange: String,
-        version: String,
-        fee: u32,
-        address: Address,
-        token0: Arc<RwLock<Token>>,
-        token1: Arc<RwLock<Token>>,
-        contract: Contract<Provider<MultiProvider>>,
-    ) -> Self {
         let mut instance =
-            V2PoolSrc::new(exchange, version, fee, address, token0, token1, contract).await;
+            V2PoolSrc {exchange, version, fee, address, token0, token1, contract, reserves0: U256::zero(), reserves1: U256::zero() };
         instance.update().await;
         instance
     }
 
-    pub async fn update(&mut self) -> Result<(), PoolUpdateError> {
+    pub async fn update(&mut self) -> Result<H160, PoolUpdateError> {
         let reserves_call_result = self
             .contract
             .method::<(), (U256, U256, U256)>("getReserves", ());
@@ -72,7 +50,7 @@ impl V2PoolSrc {
                     Ok((reserve0, reserve1, time)) => {
                         self.reserves0 = reserve0;
                         self.reserves1 = reserve1;
-                        Ok(())
+                        Ok(self.address)
                     }
                     Err(erro) => {
                         println!("contract call error {}", erro);
@@ -85,5 +63,6 @@ impl V2PoolSrc {
                 return Err(PoolUpdateError::from(erro));
             }
         }
+
     }
 }
