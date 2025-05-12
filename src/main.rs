@@ -8,6 +8,7 @@ mod chain_sim;
 mod chain_src;
 mod err;
 mod factory;
+mod mapped_vec;
 mod mem_pool;
 mod mult_provider;
 mod pair;

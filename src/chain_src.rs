@@ -11,7 +11,7 @@ use futures::StreamExt;
 use serde_json::Value;
 
 use tokio::sync::mpsc::UnboundedReceiver;
-use tokio::sync::{mpsc, RwLock, Semaphore};
+use tokio::sync::{mpsc, Mutex, RwLock, Semaphore};
 use tokio::task::JoinHandle;
 use tokio_stream::wrappers::UnboundedReceiverStream;
 
@@ -22,82 +22,13 @@ use futures::stream::{FuturesUnordered, SelectAll};
 use crate::block_service::BlockService;
 use crate::chain_graph::ChainGraph;
 use crate::err::PoolUpdateError;
+use crate::mapped_vec::MappedVec;
 use crate::mult_provider::MultiProvider;
 use crate::v2_pool_src::V2PoolSrc;
 use crate::v3_pool_src::V3PoolSrc;
 use crate::v_pool_src::AnyPoolSrc;
 use crate::{factory::AnyFactory, pair::Pair, token::Token, AbisData};
 
-/// A container that holds a Vec of (address, value) pairs and a lookup map from address to index.
-/// Ensures both structures stay in sync via its API.
-pub struct MappedVec<V> {
-    entries: Vec<(H160, V)>,
-    lookup: HashMap<H160, usize>,
-}
-
-impl<V> MappedVec<V> {
-    /// Creates an empty MappedVec.
-    pub fn new() -> Self {
-        MappedVec {
-            entries: Vec::new(),
-            lookup: HashMap::new(),
-        }
-    }
-
-    /// Inserts a value for the given address.
-    /// If the address was already present, replaces the old value and returns it.
-    pub fn insert(&mut self, addr: H160, value: V) -> Option<V> {
-        if let Some(&idx) = self.lookup.get(&addr) {
-            // replace existing
-            let (_, old) = std::mem::replace(&mut self.entries[idx], (addr, value));
-            Some(old)
-        } else {
-            // push new
-            let idx = self.entries.len();
-            self.entries.push((addr, value));
-            self.lookup.insert(addr, idx);
-            None
-        }
-    }
-
-    /// Returns a reference to the value for the given address, if any.
-    pub fn get(&self, addr: &H160) -> Option<&V> {
-        self.lookup.get(addr).map(|&i| &self.entries[i].1)
-    }
-
-    /// Returns a mutable reference to the value for the given address, if any.
-    pub fn get_mut(&mut self, addr: &H160) -> Option<&mut V> {
-        self.lookup
-            .get(addr)
-            .and_then(|&i| self.entries.get_mut(i))
-            .map(|(_, v)| v)
-    }
-
-    /// Remove the value for the given address, if present.
-    /// Uses swap_remove to keep the Vec compact and updates the moved element's index.
-    pub fn remove(&mut self, addr: &H160) -> Option<V> {
-        if let Some(idx) = self.lookup.remove(addr) {
-            let (_removed_addr, removed_val) = self.entries.swap_remove(idx);
-            // if we swapped another element into idx, update its lookup entry
-            if let Some((moved_addr, _)) = self.entries.get(idx) {
-                self.lookup.insert(*moved_addr, idx);
-            }
-            Some(removed_val)
-        } else {
-            None
-        }
-    }
-
-    /// Returns an iterator over all stored values.
-    pub fn values(&self) -> impl Iterator<Item = &V> {
-        self.entries.iter().map(|(_, v)| v)
-    }
-
-    /// Returns an iterator over all stored (address, value) pairs.
-    pub fn iter(&self) -> impl Iterator<Item = &(H160, V)> {
-        self.entries.iter()
-    }
-}
 
 /// Observes on-chain state: pools, tokens, and factories.
 pub struct ChainSrc {
@@ -105,9 +36,8 @@ pub struct ChainSrc {
     pools: MappedVec<Arc<RwLock<AnyPoolSrc>>>,
     tokens: MappedVec<Arc<RwLock<Token>>>,
     factories: MappedVec<Arc<RwLock<AnyFactory>>>,
-
+    latest_block: Arc<Mutex<Option<Block<H256>>>>,
     ws_urls: Vec<String>,
-
     block_services: Arc<BlockService>,
     graph: ChainGraph,
     abis: Arc<AbisData>, //one struct with all abis
@@ -118,6 +48,7 @@ impl ChainSrc {
     pub async fn new(
         abis: Arc<AbisData>,
         provider: Arc<Provider<MultiProvider>>,
+
         ws_urls: Vec<String>,
         tokens_list: Vec<Arc<RwLock<Token>>>,
         factories_list: Vec<Arc<RwLock<AnyFactory>>>,
@@ -129,7 +60,7 @@ impl ChainSrc {
             pools: MappedVec::new(),
             tokens: MappedVec::new(),
             factories: MappedVec::new(),
-
+            latest_block: Arc::new(Mutex::new(None)),
             ws_urls: ws_urls.clone(),
             graph: ChainGraph {
                 pools_by_token: HashMap::new(),
@@ -161,23 +92,34 @@ impl ChainSrc {
         src
     }
 
-    pub fn spawn_listener(block_rx: UnboundedReceiver<Block<H256>>) -> JoinHandle<()> {
+    pub fn spawn_new_block_listener(
+        shared_block: Arc<Mutex<Option<Block<H256>>>>,
+        mut block_rx: UnboundedReceiver<Block<H256>>,
+    ) -> JoinHandle<()> {
         tokio::spawn(async move {
             println!("▶️ Block listener started");
-            let mut block_rx = block_rx;
 
             while let Some(block) = block_rx.recv().await {
                 if let Some(n) = block.number {
                     println!("🚀 New block #{}", n);
                 }
+
+                let mut shared = shared_block.lock().await;
+                *shared = Some(block);
             }
 
             println!("🔴 Block listener ended");
         })
     }
-    /// Spawns the block‐listener in its own task and returns a handle you can abort or await.
-    /// You can still use the original `Arc<ChainSrc>` afterward.
-   
+
+    pub fn monitor(&mut self) {
+        let sub = self
+            .block_services
+            .clone()
+            .spaw_new_block_subscription_service();
+        let handle = Self::spawn_new_block_listener(self.latest_block.clone(), sub);
+    }
+
     pub async fn update_all(&mut self) {
         let pools = self.pools.values().cloned().collect::<Vec<_>>();
         let semaphore = Arc::new(Semaphore::new(50)); // Limit concurrent updates
