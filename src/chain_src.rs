@@ -10,6 +10,7 @@ use ethers::types::{Block, Chain, H160, H256, U256, U64};
 use futures::StreamExt;
 use serde_json::Value;
 
+use tokio::sync::mpsc::UnboundedReceiver;
 use tokio::sync::{mpsc, RwLock, Semaphore};
 use tokio::task::JoinHandle;
 use tokio_stream::wrappers::UnboundedReceiverStream;
@@ -106,7 +107,6 @@ pub struct ChainSrc {
     factories: MappedVec<Arc<RwLock<AnyFactory>>>,
 
     ws_urls: Vec<String>,
-    block_rx: Option<mpsc::UnboundedReceiver<Block<H256>>>,
 
     block_services: Arc<BlockService>,
     graph: ChainGraph,
@@ -136,7 +136,6 @@ impl ChainSrc {
             },
             abis,
             block_services: Arc::new(BlockService::new(ws_urls, HashSet::new())),
-            block_rx: None,
         };
 
         // Populate tokens map
@@ -162,27 +161,23 @@ impl ChainSrc {
         src
     }
 
-    /// Spawns the block‐listener in its own task and returns a handle you can abort or await.
-    /// You can still use the original `Arc<ChainSrc>` afterward.
-    pub fn spawn_listener(self: Arc<Self>) -> JoinHandle<()> {
+    pub fn spawn_listener(block_rx: UnboundedReceiver<Block<H256>>) -> JoinHandle<()> {
         tokio::spawn(async move {
-            let mut block_rx = match self.block_rx {
-            Some(rx) => rx,
-            None => {
-                eprintln!("Block subscription not initialized!");
-                return;
+            println!("▶️ Block listener started");
+            let mut block_rx = block_rx;
+
+            while let Some(block) = block_rx.recv().await {
+                if let Some(n) = block.number {
+                    println!("🚀 New block #{}", n);
+                }
             }
-        };
-        println!("▶️ Block listener started");
-        while let Some(block) = block_rx.recv().await {
-            if let Some(n) = block.number {
-                println!("🚀 New block #{}", n);
-            }
-        }
-        println!("🔴 Block listener ended");
+
+            println!("🔴 Block listener ended");
         })
     }
-
+    /// Spawns the block‐listener in its own task and returns a handle you can abort or await.
+    /// You can still use the original `Arc<ChainSrc>` afterward.
+   
     pub async fn update_all(&mut self) {
         let pools = self.pools.values().cloned().collect::<Vec<_>>();
         let semaphore = Arc::new(Semaphore::new(50)); // Limit concurrent updates

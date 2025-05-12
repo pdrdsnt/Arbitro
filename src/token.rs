@@ -13,7 +13,7 @@ use ethers::{
     providers::{Http, Provider, Ws},
     types::{H160, U256},
 };
-use graph::graph::IntoConnections;
+
 use num_traits::{real::Real, FromPrimitive, ToPrimitive};
 use sqlx::pool;
 use tokio::sync::RwLock;

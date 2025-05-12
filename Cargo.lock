@@ -139,7 +139,6 @@ dependencies = [
  "ethers",
  "ethers-providers",
  "futures",
- "graph",
  "num-bigint",
  "num-traits",
  "rayon",
@@ -1644,10 +1643,6 @@ dependencies = [
  "js-sys",
  "wasm-bindgen",
 ]
-
-[[package]]
-name = "graph"
-version = "0.1.0"
 
 [[package]]
 name = "group"
