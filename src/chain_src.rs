@@ -11,7 +11,7 @@ use futures::StreamExt;
 use serde_json::Value;
 
 use tokio::sync::mpsc::UnboundedReceiver;
-use tokio::sync::{mpsc, Mutex, RwLock, Semaphore};
+use tokio::sync::{mpsc, watch, Mutex, RwLock, Semaphore};
 use tokio::task::JoinHandle;
 use tokio_stream::wrappers::UnboundedReceiverStream;
 
@@ -28,7 +28,6 @@ use crate::v2_pool_src::V2PoolSrc;
 use crate::v3_pool_src::V3PoolSrc;
 use crate::v_pool_src::AnyPoolSrc;
 use crate::{factory::AnyFactory, pair::Pair, token::Token, AbisData};
-
 
 /// Observes on-chain state: pools, tokens, and factories.
 pub struct ChainSrc {
@@ -112,12 +111,15 @@ impl ChainSrc {
         })
     }
 
-    pub fn monitor(&mut self) {
-        let sub = self
+    pub async fn monitor(&mut self) {
+        let unbonded_receiver = self
             .block_services
             .clone()
             .spaw_new_block_subscription_service();
-        let handle = Self::spawn_new_block_listener(self.latest_block.clone(), sub);
+        let _handle = Self::spawn_new_block_listener(self.latest_block.clone(), unbonded_receiver);
+
+        // Here we’ll just wait on Ctrl+C so the process lives:
+        tokio::signal::ctrl_c().await.unwrap();
     }
 
     pub async fn update_all(&mut self) {

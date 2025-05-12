@@ -123,6 +123,7 @@ async fn main() -> Result<(), ethers::providers::ProviderError> {
     )
     .await;
     chain_src.update_all().await;
+    chain_src.monitor().await;
 
     Ok(())
 }
