@@ -19,7 +19,18 @@ impl<V> MappedVec<V> {
             lookup: HashMap::new(),
         }
     }
-
+    pub fn from_array(entries: &[(H160, V)]) -> Self
+    where
+        V: Clone,
+    {
+        let mut vec = Vec::with_capacity(entries.len());
+        let mut lookup = HashMap::with_capacity(entries.len());
+        for (i, (addr, value)) in entries.iter().enumerate() {
+            vec.push((*addr, value.clone()));
+            lookup.insert(*addr, i);
+        }
+        MappedVec { entries: vec, lookup }
+    }
     /// Inserts a value for the given address.
     /// If the address was already present, replaces the old value and returns it.
     pub fn insert(&mut self, addr: H160, value: V) -> Option<V> {

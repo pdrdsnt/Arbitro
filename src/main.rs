@@ -84,8 +84,6 @@ async fn main() -> Result<(), ethers::providers::ProviderError> {
         _dexes,
     )
     .await;
-    chain_src.update_all().await;
-    chain_src.monitor().await;
 
     Ok(())
 }

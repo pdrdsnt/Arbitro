@@ -17,7 +17,9 @@ use crate::{
 pub struct V2PoolSrc {
     pub address: Address,
     pub token0: Arc<RwLock<Token>>,
+    pub token0_addr: H160,
     pub token1: Arc<RwLock<Token>>,
+    pub token1_addr: H160,
     pub exchange: String,
     pub version: String,
     pub fee: u32,
@@ -34,7 +36,9 @@ impl V2PoolSrc {
         fee: u32,
         address: Address,
         token0: Arc<RwLock<Token>>,
+        token0_addr: H160,
         token1: Arc<RwLock<Token>>,
+        token1_addr: H160,
         contract: Contract<Provider<MultiProvider>>,
     ) -> Self {
         let mut instance = V2PoolSrc {
@@ -43,7 +47,9 @@ impl V2PoolSrc {
             fee,
             address,
             token0,
+            token0_addr,
             token1,
+            token1_addr,
             contract,
             reserves0: U256::zero(),
             reserves1: U256::zero(),
@@ -92,5 +98,60 @@ impl V2PoolSrc {
                 return Err(PoolUpdateError::from(erro));
             }
         }
+    }
+
+
+    pub async fn trade(&self, amount_in: U256, from0: bool) -> Option<Trade> {
+        if (from0 && self.reserves0 == U256::zero()) || (!from0 && self.reserves1 == U256::zero()) {
+            return None;
+        }
+
+        // 2. Get reserves in proper decimal scale
+        let (mut reserve_in, mut reserve_out) = match from0 {
+            true => (self.reserves0, self.reserves1),
+            false => (self.reserves1, self.reserves0),
+        };
+
+        // 3. Apply V2 fee calculation correctly (0.3% fee)
+        let amount_in_less_fee = amount_in
+            .checked_mul(U256::from(997))?
+            .checked_div(U256::from(1000))?;
+        let numerator = amount_in_less_fee.checked_mul(reserve_out)?;
+        let denominator = reserve_in.checked_add(amount_in_less_fee)?;
+        let amount_out = numerator.checked_div(denominator)?;
+        // 5. Calculate price impact with decimal adjustment
+
+        let current_price = reserve_out.checked_div(reserve_in)?;
+
+        let new_reserve_in = reserve_in.checked_add(amount_in_less_fee)?;
+        let new_reserve_out = reserve_out.checked_sub(amount_out)?;
+        let new_price = new_reserve_out.checked_div(new_reserve_in)?;
+
+        // Multiply numerator first to preserve precision (like fixed-point math)
+        let scale = U256::from(10).pow(18.into()); // or 1e6 if 1e18 feels too big
+        let current_price = reserve_out.checked_mul(scale)?.checked_div(reserve_in)?;
+        let new_price = new_reserve_out
+            .checked_mul(scale)?
+            .checked_div(new_reserve_in)?;
+
+        let price_impact = current_price
+            .checked_sub(new_price)?
+            .checked_mul(U256::from(10000))?
+            .checked_div(current_price)?;
+
+        Some(Trade {
+            dex: self.exchange.clone(),
+            version: self.version.clone(),
+            fee: self.fee,
+            token0: self.token0_addr,
+            token1: self.token1_addr,
+            pool: self.address,
+            from0,
+            amount_in,
+            amount_out,
+            price_impact,
+            fee_amount: amount_in.checked_sub(amount_in_less_fee)?,
+            raw_price: current_price,
+        })
     }
 }
