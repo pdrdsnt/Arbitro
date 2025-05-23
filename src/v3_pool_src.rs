@@ -5,7 +5,7 @@ use ethers_providers::Provider;
 use futures::future::join_all;
 use tokio::sync::RwLock;
 
-use crate::{err::PoolUpdateError, mult_provider::MultiProvider, trade::Trade, tick::Tick, token::Token};
+use crate::{err::PoolUpdateError, mult_provider::MultiProvider, tick_math::Tick, token::Token, trade::Trade, v3_pool_sim::V3PoolSim};
 
 #[derive(Debug)]
 pub struct V3PoolSrc {
@@ -185,8 +185,6 @@ impl V3PoolSrc {
             }
         }
 
-        // Sort by proximity to current tick
-        ticks.sort_by_key(|&t| (t - current_tick).abs());
         ticks
     }
 
@@ -236,10 +234,13 @@ impl V3PoolSrc {
     }
 
     async fn update_active_ticks(&mut self) {
+
         let nearest_ticks =
             V3PoolSrc::find_nearest_ticks(&self.contract, self.current_tick, self.tick_spacing).await;
 
         self.active_ticks = V3PoolSrc::fetch_tick_data(&self.contract, &nearest_ticks).await;
+
+        self.active_ticks.sort_by_key(|t| t.tick);
     }
 }
 

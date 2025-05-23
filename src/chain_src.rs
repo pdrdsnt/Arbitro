@@ -1,12 +1,17 @@
 use std::collections::{HashMap, HashSet};
+use std::str::FromStr;
 use std::sync::Arc;
 use std::time::Duration;
 
+use axum::http::uri;
+use ethers::abi;
 use ethers::contract::Contract;
 use ethers::middleware::transformer::ds_proxy::factory;
 use ethers::providers::{Middleware, Provider, Ws};
-use ethers::types::{Block, Chain, H160, H256, U256, U64};
+use ethers::types::{Block, Chain, Filter, Log, H160, H256, U256, U64};
 
+use ethers_providers::Http;
+use futures::future::join_all;
 use futures::StreamExt;
 use serde_json::Value;
 
@@ -19,25 +24,29 @@ use tokio_stream::wrappers::UnboundedReceiverStream;
 // there is no direct Tokio equivalent for merging arbitrary streams
 use futures::stream::{FuturesUnordered, SelectAll};
 
-use crate::block_service::BlockService;
+use crate::block_service::ChainDataService;
+use crate::blockchain_db::{DexModel, TokenModel};
 use crate::chain_graph::ChainGraph;
 use crate::err::PoolUpdateError;
-use crate::mapped_vec::MappedVec;
+use crate::factory::Factory;
+use crate::mapped_vec::{self, MappedVec};
 use crate::mult_provider::MultiProvider;
+use crate::v2_pool_sim::V2PoolSim;
 use crate::v2_pool_src::V2PoolSrc;
+use crate::v3_pool_sim::V3PoolSim;
 use crate::v3_pool_src::V3PoolSrc;
+use crate::v_pool_sim::AnyPoolSim;
 use crate::v_pool_src::AnyPoolSrc;
 use crate::{factory::AnyFactory, pair::Pair, token::Token, AbisData};
 
 /// Observes on-chain state: pools, tokens, and factories.
 pub struct ChainSrc {
     provider: Arc<Provider<MultiProvider>>,
-    pools: MappedVec<Arc<RwLock<AnyPoolSrc>>>,
-    tokens: MappedVec<Arc<RwLock<Token>>>,
+    chain_service: ChainDataService,
+    pub pools: MappedVec<Arc<RwLock<AnyPoolSrc>>>,
+    pub tokens: MappedVec<Arc<RwLock<Token>>>,
     factories: MappedVec<Arc<RwLock<AnyFactory>>>,
-    latest_block: Arc<Mutex<Option<Block<H256>>>>,
     ws_urls: Vec<String>,
-    block_services: Arc<BlockService>,
     graph: ChainGraph,
     abis: Arc<AbisData>, //one struct with all abis
 }
@@ -47,44 +56,65 @@ impl ChainSrc {
     pub async fn new(
         abis: Arc<AbisData>,
         provider: Arc<Provider<MultiProvider>>,
-
         ws_urls: Vec<String>,
-        tokens_list: Vec<Arc<RwLock<Token>>>,
-        factories_list: Vec<Arc<RwLock<AnyFactory>>>,
+        tokens_list: &Vec<TokenModel>,
+        _dexes: &Vec<DexModel>,
     ) -> Self {
         println!("Creating ChainSrc");
+
+        let tokens = {
+            let mut tokens = Vec::new();
+            for t in tokens_list {
+                let add = H160::from_str(&t.address).unwrap();
+                let token = Token::new(
+                    t.name.clone(),
+                    add.clone(),
+                    t.symbol.clone(),
+                    t.decimals,
+                    Contract::new(add, abis.v2_factory.clone(), provider.clone()),
+                    //PLACEHOLDER WE DONT CALL TOKEN FUNCTION SO DOESNT MATTER
+                );
+                tokens.push(Arc::new(RwLock::new(token)));
+            }
+            tokens
+        };
+
+        let mut factories = {
+            let mut _factories = Vec::new();
+            for d in _dexes {
+                let add = H160::from_str(&d.factory).unwrap();
+
+                if d.version == "v2" {
+                    let factory = Factory::new(
+                        d.dex_name.clone(),
+                        Contract::new(add, abis.v2_factory.clone(), provider.clone()),
+                    );
+                    let v2_factory = AnyFactory::V2(factory);
+                    _factories.push(Arc::new(RwLock::new(v2_factory)));
+                } else if d.version == "v3" {
+                    let factory = Factory::new(
+                        d.dex_name.clone(),
+                        Contract::new(add, abis.v3_factory.clone(), provider.clone()),
+                    );
+                    let v3_factory = AnyFactory::V3(factory);
+                    _factories.push(Arc::new(RwLock::new(v3_factory)));
+                }
+            }
+            _factories
+        };
 
         let mut src = ChainSrc {
             provider,
             pools: MappedVec::new(),
             tokens: MappedVec::new(),
             factories: MappedVec::new(),
-            latest_block: Arc::new(Mutex::new(None)),
             ws_urls: ws_urls.clone(),
             graph: ChainGraph {
                 pools_by_token: HashMap::new(),
             },
             abis,
-            block_services: Arc::new(BlockService::new(ws_urls, HashSet::new())),
+            chain_service: todo!(),
         };
-
-        // Populate tokens map
-        for token in tokens_list {
-            let addr = token.read().await.address;
-            src.tokens.insert(addr, token.clone());
-            println!("Token added: {}", token.read().await.symbol);
-        }
-
-        // Populate factories map
-        for factory in factories_list {
-            let addr = factory.read().await.get_address();
-            src.factories.insert(addr, factory.clone());
-            println!(
-                "Factory added: {} {}",
-                factory.read().await.get_name(),
-                factory.read().await.get_version()
-            );
-        }
 
         src.discover_all_pools().await.unwrap();
 
@@ -111,12 +141,61 @@ impl ChainSrc {
         })
     }
 
+    pub async fn snapshot_tokens(&self) -> MappedVec<Token> {
+        let mut mapped_vec = MappedVec::new();
+        for t in self.tokens.values() {
+            let tkn = t.read().await;
+            mapped_vec.insert(tkn.address.clone(), tkn.clone());
+        }
+        mapped_vec
+    }
+
+    pub async fn snapshot_pools(&self) -> MappedVec<AnyPoolSim> {
+        let mut mapped_vec = MappedVec::new();
+        for t in self.pools.values() {
+            let pool = t.read().await;
+            let vesion = pool.get_version();
+            let tokens = pool.get_tokens().await;
+            let reserves = pool.get_reserves().unwrap();
+            mapped_vec.insert(
+                pool.get_address(),
+                if (vesion == "v2") {
+                    AnyPoolSim::V2(V2PoolSim {
+                        address: pool.get_address(),
+                        token0: self.tokens.get(&tokens[0]).unwrap().read().await.clone(),
+                        token1: self.tokens.get(&tokens[1]).unwrap().read().await.clone(),
+                        exchange: pool.get_dex(),
+                        version: vesion,
+                        fee: pool.get_fee(),
+                        reserves0: reserves.0,
+                        reserves1: reserves.1,
+                    })
+                } else {
+                    AnyPoolSim::V3(V3PoolSim {
+                        address: pool.get_address(),
+                        token0: self.tokens.get(&tokens[0]).unwrap().read().await.clone(),
+                        token1: self.tokens.get(&tokens[1]).unwrap().read().await.clone(),
+                        exchange: pool.get_dex(),
+                        version: vesion,
+                        fee: pool.get_fee(),
+                        active_ticks: pool.active_ticks().unwrap().clone(),
+                        tick_spacing: pool.tick_spacing().unwrap(),
+                        liquidity: pool.liquidity().unwrap().clone(),
+                        x96price: pool.x96_price().unwrap().clone(),
+                    })
+                },
+            );
+        }
+        mapped_vec
+    }
+
     pub async fn monitor(&mut self) {
-        let unbonded_receiver = self
-            .block_services
-            .clone()
-            .spaw_new_block_subscription_service();
-        let _handle = Self::spawn_new_block_listener(self.latest_block.clone(), unbonded_receiver);
+        let mut ws_providers: Vec<Provider<Ws>> = Vec::new();
+        for url in self.ws_urls.clone() {
+            if let Ok(connection) = Provider::<Ws>::connect(url).await {
+                ws_providers.push(connection);
+            }
+        }
 
         // Here we’ll just wait on Ctrl+C so the process lives:
         tokio::signal::ctrl_c().await.unwrap();
@@ -146,7 +225,6 @@ impl ChainSrc {
     }
     /// Discover and register all pools for every token pair in `tokens`.
     pub async fn discover_all_pools(&mut self) -> Result<(), PoolUpdateError> {
-        // 1. Collect token addresses for all registered tokens
         let token_addrs: Vec<H160> = FuturesUnordered::from_iter(self.tokens.values().map(|tok| {
             let t = tok.clone();
             async move { t.read().await.address }
@@ -156,35 +234,80 @@ impl ChainSrc {
 
         let pairs = Self::generate_unique_pairs(&token_addrs);
 
-        // 2. Iterate unique pairs (i < j)
-        for i in 0..token_addrs.len() {
-            for j in (i + 1)..token_addrs.len() {
-                let t0 = token_addrs[i];
-                let t1 = token_addrs[j];
+        let factories_addr: Vec<&H160> = self.factories.get_keys();
+        let ws_providers = self.chain_service.ws_providers.clone();
+        let abi_ref = self.abis.clone();
 
-                // search and insert pools
-                let found = self.search_pools(&t0, &t1).await;
-
-                for pool_addr in found {
-                    // after insertion, retrieve the pool to inspect direction
-                    if let Some(pool_arc) = self.pools.get(&pool_addr) {
-                        let is0 = pool_arc.read().await.is_0(&t0).await;
-                        // update graph for both tokens
-                        self.graph
-                            .pools_by_token
-                            .entry(t0)
-                            .or_default()
-                            .push((pool_addr, is0));
-                        self.graph
-                            .pools_by_token
-                            .entry(t1)
-                            .or_default()
-                            .push((pool_addr, !is0));
-                    }
+        let futures =
+            pairs.into_iter().map(|(t0, t1)| {
+                let ws_providers = ws_providers.clone();
+                let abi_ref = abi_ref.clone();
+                let f = factories_addr.clone();
+                async move {
+                    //Self::search_pools_static(abi_ref, &*ws_providers, f.clone(), &t0, &t1).await
                 }
-            }
-        }
+            });
+
+        join_all(futures).await;
+
         Ok(())
+    }
+
+    pub async fn search_pool(
+        abis: Arc<AbisData>,
+        provider: Arc<Provider<MultiProvider>>,
+        factory: Arc<RwLock<AnyFactory>>,
+        fee: u32,
+        token0: &H160,
+        token1: &H160,) -> Option<DiscoveredPool> {
+
+        let pool = None;
+        let maybe_pool = {
+            let mut factory_write = factory.write().await;
+            factory_write.get_pool(token0, token1, &fee, &0).await
+        };
+
+        if let Some(va) = maybe_pool {
+            let pool_version = {
+                let factory_read = factory.read().await;
+                factory_read.get_version().to_string()
+            };
+
+            let pool_arc = if pool_version == "v2" {
+                let v2_pool_contract = Contract::new(va, abis.v2_pool.clone(), provider.clone());
+
+                let new_v2_pool = V2PoolSrc {
+                    address: va,
+                    token0: tokens.get(token0).unwrap().clone(),
+                    token1: tokens.get(token1).unwrap().clone(),
+                    exchange: name.clone(),
+                    version: version.clone(),
+                    fee,
+                    reserves0: U256::from(0),
+                    reserves1: U256::from(0),
+                    contract: v2_pool_contract,
+                };
+
+                Arc::new(RwLock::new(AnyPoolSrc::V2 { 0: new_v2_pool }))
+            } else {
+                let v3_pool_contract = Contract::new(va, abis.v3_pool.clone(), provider.clone());
+
+                let new_v3_pool = V3PoolSrc::new(
+                    va,
+                    tokens.get(token0).unwrap().clone(),
+                    tokens.get(token1).unwrap().clone(),
+                    name.clone(),
+                    version.clone(),
+                    fee,
+                    v3_pool_contract,
+                )
+                .await;
+
+                Arc::new(RwLock::new(AnyPoolSrc::V3 { 0: new_v3_pool }))
+            };
+        }
+
+        pool
     }
 
     fn generate_unique_pairs(tokens: &[H160]) -> Vec<(H160, H160)> {
@@ -216,6 +339,10 @@ impl ChainSrc {
 
                 if let Some(va) = maybe_pool {
                     founded_pools.push(va);
+
+                    if let Some(r) = self.logs_service.clone() {
+                        r.lock().await.add_pool(va);
+                    }
 
                     let pool_version = {
                         let factory_read = factory.read().await;
@@ -294,4 +421,8 @@ impl ChainSrc {
     pub fn get_factory(&self, addr: &H160) -> Option<&Arc<RwLock<AnyFactory>>> {
         self.factories.get(addr)
     }
+}
+pub struct DiscoveredPool {
+    pub address: H160,
+    pub pool: Arc<RwLock<AnyPoolSrc>>,
 }

@@ -7,12 +7,12 @@ mod chain_graph;
 mod chain_sim;
 mod chain_src;
 mod err;
+mod tick_math;
 mod factory;
 mod mapped_vec;
 mod mem_pool;
 mod mult_provider;
 mod pair;
-mod tick;
 mod token;
 mod trade;
 mod v2_pool_sim;
@@ -70,47 +70,9 @@ async fn main() -> Result<(), ethers::providers::ProviderError> {
     let abis_arc = Arc::new(abis);
     let provider = Provider::<MultiProvider>::new(mult_provider);
     let arc_provider = Arc::new(provider);
-    let _dexes = &chains_data.chains[0].dexes;
-    let _tokens = &chains_data.chains[0].tokens;
-    let tokens = {
-        let mut tokens = Vec::new();
-        for t in _tokens {
-            let add = H160::from_str(&t.address).unwrap();
-            let token = token::Token::new(
-                t.name.clone(),
-                add.clone(),
-                t.symbol.clone(),
-                t.decimals,
-                Contract::new(add, abis_arc.v2_factory.clone(), arc_provider.clone()),
-                //PLACEHOLDER WE DONT CALL TOKEN FUNCTION SO DOESNT MATTER
-            );
-            tokens.push(Arc::new(RwLock::new(token)));
-        }
-        tokens
-    };
-    let mut factories = {
-        let mut _factories = Vec::new();
-        for d in _dexes {
-            let add = H160::from_str(&d.factory).unwrap();
-
-            if d.version == "v2" {
-                let factory = factory::Factory::new(
-                    d.dex_name.clone(),
-                    Contract::new(add, abis_arc.v2_factory.clone(), arc_provider.clone()),
-                );
-                let v2_factory = factory::AnyFactory::V2(factory);
-                _factories.push(Arc::new(RwLock::new(v2_factory)));
-            } else if d.version == "v3" {
-                let factory = factory::Factory::new(
-                    d.dex_name.clone(),
-                    Contract::new(add, abis_arc.v3_factory.clone(), arc_provider.clone()),
-                );
-                let v3_factory = factory::AnyFactory::V3(factory);
-                _factories.push(Arc::new(RwLock::new(v3_factory)));
-            }
-        }
-        _factories
-    };
+    let _dexes: &Vec<DexModel> = &chains_data.chains[0].dexes;
+    let _tokens: &Vec<TokenModel> = &chains_data.chains[0].tokens;
+   
 
     let mut path = Vec::<Trade>::new();
 
@@ -118,8 +80,8 @@ async fn main() -> Result<(), ethers::providers::ProviderError> {
         abis_arc.clone(),
         arc_provider.clone(),
         ws_urls,
-        tokens,
-        factories,
+        _tokens,
+        _dexes,
     )
     .await;
     chain_src.update_all().await;

@@ -13,24 +13,14 @@ use crate::{
     token::Token,
 };
 
-#[derive(Debug, Clone)]
-pub struct PoolData {
-    pub address: H160,
-    pub token0: H160,
-    pub token1: H160,
-    pub fee: u32,
-    pub tick_spacing: u32,
-}
-
 #[derive(Clone)]
 pub struct Factory {
     pub name: String,
     pub factory: Contract<Provider<MultiProvider>>,
-    pub pools: Vec<PoolData>,
 }
 impl Factory {
     pub fn new(name: String, contract: Contract<Provider<MultiProvider>>) -> Self {
-        Self { name, factory: contract, pools: Vec::new() }
+        Self { name, factory: contract }
     }
 }
 
@@ -69,7 +59,7 @@ impl AnyFactory {
     }
 
     pub fn new(name: String, v2: bool, factory: Contract<Provider<MultiProvider>>) -> Self {
-        let dex = Factory { name, factory , pools: Vec::new() };
+        let dex = Factory { name, factory };
 
         if v2 {
             Self::V2(dex)
@@ -79,7 +69,7 @@ impl AnyFactory {
     }
 
     pub async fn get_pool(
-        &mut self,
+        &self,
         token0: &H160,
         token1: &H160,
         fee: &u32,
@@ -162,7 +152,7 @@ impl AnyFactory {
         }
     }
 
-    pub fn get_factory(&self) -> &Contract<Provider<MultiProvider>> {
+    pub fn get_contract(&self) -> &Contract<Provider<MultiProvider>> {
         match self {
             AnyFactory::V2(dex) | AnyFactory::V3(dex) => &dex.factory,
         }

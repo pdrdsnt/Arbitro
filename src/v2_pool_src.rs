@@ -1,11 +1,16 @@
 use std::sync::Arc;
 
-use ethers::{abi::Address, contract::Contract, types::{H160, U256}};
+use ethers::{
+    abi::Address,
+    contract::Contract,
+    types::{H160, U256},
+};
 use ethers_providers::Provider;
 use tokio::sync::RwLock;
 
 use crate::{
-    err::PoolUpdateError, mult_provider::MultiProvider, trade::Trade, token::Token
+    err::PoolUpdateError, mult_provider::MultiProvider, token::Token, trade::Trade,
+    v2_pool_sim::V2PoolSim,
 };
 
 #[derive(Debug)]
@@ -32,10 +37,34 @@ impl V2PoolSrc {
         token1: Arc<RwLock<Token>>,
         contract: Contract<Provider<MultiProvider>>,
     ) -> Self {
-        let mut instance =
-            V2PoolSrc {exchange, version, fee, address, token0, token1, contract, reserves0: U256::zero(), reserves1: U256::zero() };
+        let mut instance = V2PoolSrc {
+            exchange,
+            version,
+            fee,
+            address,
+            token0,
+            token1,
+            contract,
+            reserves0: U256::zero(),
+            reserves1: U256::zero(),
+        };
         instance.update().await;
         instance
+    }
+
+    pub async fn into_sim(&self) -> V2PoolSim {
+        let token0 = self.token0.read().await.clone();
+        let token1 = self.token1.read().await.clone();
+        V2PoolSim {
+            address: self.address,
+            token0,
+            token1,
+            exchange: self.exchange.clone(),
+            version: self.version.clone(),
+            fee: self.fee,
+            reserves0: self.reserves0,
+            reserves1: self.reserves1,
+        }
     }
 
     pub async fn update(&mut self) -> Result<H160, PoolUpdateError> {
@@ -63,6 +92,5 @@ impl V2PoolSrc {
                 return Err(PoolUpdateError::from(erro));
             }
         }
-
     }
 }

@@ -5,6 +5,7 @@ use ethers::types::H160;
 
 /// A container that holds a Vec of (address, value) pairs and a lookup map from address to index.
 /// Ensures both structures stay in sync via its API.
+#[derive(Clone)]
 pub struct MappedVec<V> {
     entries: Vec<(H160, V)>,
     lookup: HashMap<H160, usize>,
@@ -34,7 +35,9 @@ impl<V> MappedVec<V> {
             None
         }
     }
-
+    pub fn get_keys(&self) -> Vec<&H160> {
+        self.get_keys()
+    }
     /// Returns a reference to the value for the given address, if any.
     pub fn get(&self, addr: &H160) -> Option<&V> {
         self.lookup.get(addr).map(|&i| &self.entries[i].1)

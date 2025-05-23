@@ -14,6 +14,7 @@ pub struct V2PoolSim {
     pub fee: u32,
     pub reserves0: U256,
     pub reserves1: U256,
+    
 }
 
 impl V2PoolSim {

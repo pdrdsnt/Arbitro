@@ -4,7 +4,7 @@ use bigdecimal::BigDecimal;
 use ethers::types::{H160, U256};
 use num_traits::Zero;
 
-use crate::{trade::Trade, v2_pool_src::V2PoolSrc, v3_pool_src::V3PoolSrc};
+use crate::{tick_math::Tick, trade::Trade, v2_pool_src::V2PoolSrc, v3_pool_src::V3PoolSrc};
 use bigdecimal::ToPrimitive;
 #[derive(Debug)]
 pub enum AnyPoolSrc {
@@ -154,6 +154,37 @@ impl AnyPoolSrc {
 
                 Some((r0, r1))
             }
+        }
+    }
+
+    pub fn active_ticks(&self) -> Option<&Vec<Tick>> {
+        match self {
+            AnyPoolSrc::V3(v3) => Some(&v3.active_ticks),
+            _ => None,
+        }
+    }
+
+    /// Returns the V3 pool’s tick spacing, or `None` if this is a V2 pool.
+    pub fn tick_spacing(&self) -> Option<i32> {
+        match self {
+            AnyPoolSrc::V3(v3) => Some(v3.tick_spacing),
+            _ => None,
+        }
+    }
+
+    /// Returns the V3 pool’s current liquidity, or `None` if this is a V2 pool.
+    pub fn liquidity(&self) -> Option<&U256> {
+        match self {
+            AnyPoolSrc::V3(v3) => Some(&v3.liquidity),
+            _ => None,
+        }
+    }
+
+    /// Returns the V3 pool’s sqrt-price (x96), or `None` if this is a V2 pool.
+    pub fn x96_price(&self) -> Option<&U256> {
+        match self {
+            AnyPoolSrc::V3(v3) => Some(&v3.x96price),
+            _ => None,
         }
     }
 }

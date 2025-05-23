@@ -1,77 +1,141 @@
-use ethers::providers::{Middleware, Provider, Ws};
-use ethers::types::{Block, Transaction, H160, H256, U64};
-use tokio::sync::mpsc::{unbounded_channel, UnboundedReceiver};
-use futures::{stream::SelectAll, StreamExt}; // still use futures for SelectAll
-use std::collections::{HashSet, VecDeque};
-use std::sync::Arc;
+use ethers::prelude::*;
+use futures::stream::{SelectAll, StreamExt};
+use std::{collections::HashSet, sync::Arc};
+use tokio::{
+    sync::mpsc::{unbounded_channel, UnboundedReceiver, UnboundedSender},
+    task::JoinHandle,
+};
 
-use crate::mult_provider::MultiProvider;
-
-pub struct Snapshot {
-    pub block_number: U64,
-    pub pending_hashes: Vec<H256>,
-    pub relevant_txs: Vec<Transaction>,
+struct Chunk {
+    addrs: HashSet<H160>,
+    handle: JoinHandle<()>,
+    tombstones: HashSet<H160>,
 }
 
-pub struct BlockService {
-    
-    ws_urls: Vec<String>,
-    watch_addresses: HashSet<H160>,
+pub struct ChainDataService {
+    pub ws_providers: Arc<Vec<Provider<Ws>>>,
+    filter: Filter,
+
+    // Block subscription
+    block_tx: UnboundedSender<Block<H256>>,
+    pub block_rx: Arc<UnboundedReceiver<Block<H256>>>,
+
+    // Log subscription
+    log_tx: UnboundedSender<Log>,
+    pub log_rx: Arc<UnboundedReceiver<Log>>,
+
+    chunks: Vec<Chunk>,
+    all_addrs: HashSet<H160>,
+    collapse_threshold: usize,
 }
 
-impl BlockService {
-    pub fn new(
-        ws_urls: Vec<String>,
-        watch_addresses: HashSet<H160>,
-    ) -> Self {
-        Self {
-            ws_urls,
-            watch_addresses,
+impl ChainDataService {
+    pub async fn new(ws_urls: Vec<String>, initial_addrs: impl IntoIterator<Item = H160>, collapse_threshold: usize) -> anyhow::Result<Self> {
+        let mut providers = Vec::with_capacity(ws_urls.len());
+        for url in ws_urls {
+            match Provider::<Ws>::connect(&url).await {
+                Ok(ws) => providers.push(ws),
+                Err(err) => eprintln!("Failed WS connect to {}: {}", url, err),
+            }
         }
+        if providers.is_empty() {
+            anyhow::bail!("Could not connect to any WS endpoint");
+        }
+
+        let ws_providers = Arc::new(providers);
+        let (block_tx, block_rx) = unbounded_channel();
+        let (log_tx, log_rx) = unbounded_channel();
+
+        let mut svc = Self {
+            ws_providers,
+            filter: Filter::new(),
+            block_tx,
+            block_rx: Arc::new(block_rx),
+            log_tx,
+            log_rx: Arc::new(log_rx),
+            chunks: Vec::new(),
+            all_addrs: initial_addrs.into_iter().collect(),
+            collapse_threshold,
+        };
+
+        svc.spawn_block_subscriber();
+        svc.spawn_chunk(None);
+
+        Ok(svc)
     }
 
- /// Returns a Receiver that gets one Snapshot per block.
-    /// The actual subscriptions and HTTP calls run in a background task.
-    pub fn spaw_new_block_subscription_service(self: Arc<Self>) -> UnboundedReceiver<Block<H256>> {
-        // 1) Create the unbounded channel
-        let (tx, rx) = unbounded_channel::<Block<H256>>();
+    /// Spawn block subscriber that forwards to `block_tx`
+    fn spawn_block_subscriber(&self) {
+        let providers = self.ws_providers.clone();
+        let block_tx = self.block_tx.clone();
 
-        // 2) Spawn the background task
         tokio::spawn(async move {
-            // 2a) Connect to each WS endpoint
-            let mut ws_nodes = Vec::with_capacity(self.ws_urls.len());
-            for url in &self.ws_urls {
-                match Provider::<Ws>::connect(url).await {
-                    Ok(ws) => ws_nodes.push(ws),
-                    Err(e) => {
-                        eprintln!("WS connect failed ({}): {}", url, e);
-                    }
-                }
-            }
-
-            // 2b) Merge all block subscriptions
             let mut merged = SelectAll::new();
-            for ws in &ws_nodes {
-                match ws.subscribe_blocks().await {
-                    Ok(stream) => merged.push(stream),
-                    Err(e) => {
-                        eprintln!("subscribe_blocks failed: {}", e);
-                    }
+            for ws in &*providers {
+                if let Ok(stream) = ws.subscribe_blocks().await {
+                    merged.push(stream);
                 }
             }
-
-            // 2c) Drive the loop
             while let Some(header) = merged.next().await {
-                // unwrap the block number              
+                let _ = block_tx.send(header);
+            }
+        });
+    }
 
-                // send it (ignore if the receiver was dropped)
-                let _ = tx.send(header);
+    /// Spawn log subscription chunk
+    fn spawn_chunk(&mut self, _addrs: Option<&HashSet<H160>>) {
+        let addrs = match _addrs {
+            Some(addrs) => addrs,
+            None => &self.all_addrs,
+        };
+        let filter = Filter::new().address(addrs.iter().cloned().collect::<Vec<_>>());
+
+        let providers = self.ws_providers.clone();
+        let log_tx = self.log_tx.clone();
+
+        let handle = tokio::spawn(async move {
+            let mut merged = SelectAll::new();
+            for ws in &*providers {
+                if let Ok(stream) = ws.subscribe_logs(&filter).await {
+                    merged.push(stream);
+                }
+            }
+            while let Some(log) = merged.next().await {
+                let _ = log_tx.send(log);
             }
         });
 
-        // 3) Return the receiver immediately
-        rx
+        self.chunks.push(Chunk {
+            addrs: addrs.clone(),
+            handle,
+            tombstones: HashSet::new(),
+        });
     }
 
+    pub fn add_pool(&mut self, addr: H160) {
+        self.all_addrs.insert(addr);
+        let mut singleton = HashSet::new();
+        singleton.insert(addr);
+        self.spawn_chunk(Some(&singleton));
 
+        if self.chunks.len() >= self.collapse_threshold {
+            self.collapse_chunks();
+        }
+    }
+
+    pub fn remove_pool(&mut self, addr: &H160) {
+        self.all_addrs.remove(addr);
+        for chunk in &mut self.chunks {
+            if chunk.addrs.contains(addr) {
+                chunk.tombstones.insert(*addr);
+            }
+        }
+    }
+
+    fn collapse_chunks(&mut self) {
+        for chunk in self.chunks.drain(..) {
+            chunk.handle.abort();
+        }
+        self.spawn_chunk(None);
+    }
 }

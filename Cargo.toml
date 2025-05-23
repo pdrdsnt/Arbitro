@@ -23,4 +23,5 @@ ethers-providers = "2.0.14"
 clap = "4.5.37"
 async-trait = "0.1.88"
 tokio-stream = "0.1.17"
+anyhow = "1.0.98"
 

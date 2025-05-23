@@ -9,18 +9,17 @@ use ethers_providers::Provider;
 use futures::future::join_all;
 
 use crate::{
-    mult_provider::MultiProvider, tick::Tick, token::Token, trade::Trade
+    mult_provider::MultiProvider, tick_math::{self, Tick}, token::Token, trade::Trade
 };
 
 #[derive(Debug)]
 pub struct V3PoolSim {
     pub address: Address,
-    pub token0: H160,
-    pub token1: H160,
+    pub token0: Token,
+    pub token1: Token,
     pub exchange: String,
     pub version: String,
     pub fee: u32,
-    pub current_tick_index: usize,
     pub active_ticks: Vec<Tick>,
     pub tick_spacing: i32,
     pub liquidity: U256,
@@ -34,8 +33,8 @@ impl V3PoolSim {
         fee: u32,
         dex: String,
         version: String,
-        token0: H160,
-        token1: H160,
+        token0: Token,
+        token1: Token,
     ) -> Self {
         Self {
             address,
@@ -43,7 +42,6 @@ impl V3PoolSim {
             token1,
             exchange: dex,
             version,
-            current_tick_index: 0,
             active_ticks: Vec::new(),
             fee,
             tick_spacing: 0,
@@ -60,15 +58,17 @@ impl V3PoolSim {
 
         // 2. Local state
         let mut total_out = U256::zero();
-        let mut i = self.current_tick_index;
+
         let mut curr_price = self.x96price;
+
+        let mut i = tick_math::tick_from_price(self.x96price)?;
         let mut curr_liq = self.liquidity;
 
         // 3. Iterate ticks
         while remaining > U256::zero() {
             // find next index
             if from0 {
-                if i >= self.active_ticks.len() {
+                if i >= self.active_ticks.len() as i32 {
                     break;
                 }
             } else {
@@ -79,7 +79,7 @@ impl V3PoolSim {
             }
 
             // get target tick price
-            let tick = self.active_ticks.get(i)?;
+            let tick = self.active_ticks.get(i as usize)?;
             let next_price = Self::tick_price(tick.tick)?;
 
             // compute max amount possible to cross this tick
@@ -154,8 +154,8 @@ impl V3PoolSim {
             dex: self.exchange.clone(),
             version: self.version.clone(),
             fee: self.fee,
-            token0: self.token0,
-            token1: self.token1,
+            token0: self.token0.address,
+            token1: self.token1.address,
             pool: self.address,
             from0,
             amount_in,
