@@ -1,4 +1,5 @@
 //! Utility functions for Uniswap V3 tick bitmap and tick index math
+use crossbeam_channel::tick;
 use ethers::types::U256;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]

@@ -63,7 +63,6 @@ impl ChainDataService {
 
         Ok(svc)
     }
-
     /// Spawn block subscriber that forwards to `block_tx`
     fn spawn_block_subscriber(&self) {
         let providers = self.ws_providers.clone();
@@ -81,7 +80,6 @@ impl ChainDataService {
             }
         });
     }
-
     /// Spawn log subscription chunk
     fn spawn_chunk(&mut self, _addrs: Option<&HashSet<H160>>) {
         let addrs = match _addrs {

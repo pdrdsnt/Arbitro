@@ -19,15 +19,13 @@ impl<V> MappedVec<V> {
             lookup: HashMap::new(),
         }
     }
-    pub fn from_array(entries: &[(H160, V)]) -> Self
-    where
-        V: Clone,
+    pub fn from_array(entries: Vec<(H160, V)>) -> Self
     {
-        let mut vec = Vec::with_capacity(entries.len());
+        let mut vec: Vec<(H160, V)> = Vec::with_capacity(entries.len());
         let mut lookup = HashMap::with_capacity(entries.len());
-        for (i, (addr, value)) in entries.iter().enumerate() {
-            vec.push((*addr, value.clone()));
-            lookup.insert(*addr, i);
+        for (i, (addr, value)) in entries.into_iter().enumerate() {
+            vec.push((addr, value));
+            lookup.insert(addr, i);
         }
         MappedVec { entries: vec, lookup }
     }

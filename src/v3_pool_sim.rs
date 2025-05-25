@@ -9,7 +9,10 @@ use ethers_providers::Provider;
 use futures::future::join_all;
 
 use crate::{
-    mult_provider::MultiProvider, tick_math::{self, Tick}, token::Token, trade::Trade
+    mult_provider::MultiProvider,
+    tick_math::{self, Tick},
+    token::Token,
+    trade::Trade,
 };
 
 #[derive(Debug)]
@@ -35,6 +38,10 @@ impl V3PoolSim {
         version: String,
         token0: Token,
         token1: Token,
+        tick_spacing: i32,
+        active_ticks: Vec<Tick>,
+        liquidity: U256,
+        x96price: U256,
     ) -> Self {
         Self {
             address,
@@ -42,11 +49,11 @@ impl V3PoolSim {
             token1,
             exchange: dex,
             version,
-            active_ticks: Vec::new(),
+            active_ticks: active_ticks,
             fee,
-            tick_spacing: 0,
-            liquidity: U256::from(0),
-            x96price: U256::from(0),
+            tick_spacing: tick_spacing,
+            liquidity: liquidity,
+            x96price: x96price,
         }
     }
     pub fn trade(&mut self, amount_in: U256, from0: bool) -> Option<Trade> {
@@ -61,31 +68,59 @@ impl V3PoolSim {
 
         let mut curr_price = self.x96price;
 
-        let mut i = tick_math::tick_from_price(self.x96price)?;
+        let mut current_tick = tick_math::tick_from_price(self.x96price)?;
+        let mut next_tick_index = match self
+            .active_ticks
+            .binary_search_by_key(&current_tick, |t| t.tick)
+        {
+            Ok(i) => {
+                if from0 {
+                    if i + 1 >= self.active_ticks.len() {
+                        return None;
+                    } // No ticks above
+                    i + 1
+                } else {
+                    if i == 0 {
+                        return None;
+                    } // No ticks below
+                    i - 1
+                }
+            }
+            Err(i) => {
+                if from0 {
+                    if i >= self.active_ticks.len() {
+                        return None;
+                    } // No ticks above
+                    i
+                } else {
+                    if i == 0 {
+                        return None;
+                    } // No ticks below
+                    i - 1
+                }
+            }
+        };
         let mut curr_liq = self.liquidity;
 
         // 3. Iterate ticks
         while remaining > U256::zero() {
-            // find next index
-            if from0 {
-                if i >= self.active_ticks.len() as i32 {
-                    break;
-                }
-            } else {
-                if i == 0 {
-                    break;
-                }
-                i -= 1;
-            }
-
             // get target tick price
-            let tick = self.active_ticks.get(i as usize)?;
+            let tick = self.active_ticks.get(next_tick_index as usize)?;
             let next_price = Self::tick_price(tick.tick)?;
+            next_tick_index = if from0 {
+                next_tick_index.checked_add(1)?
+            } else {
+                next_tick_index.checked_sub(1)?
+            };
 
             // compute max amount possible to cross this tick
             let possible =
                 Self::compute_amount_possible(from0, &curr_liq, &curr_price, &next_price)?;
 
+            ////-------------------------------
+            ///
+            ////-------------------------------
+            ///
             if remaining < possible {
                 // won't cross full tick
                 let new_price = if from0 {

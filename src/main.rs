@@ -4,7 +4,7 @@ mod block_service;
 mod block_decoder;
 mod blockchain_db;
 mod chain_graph;
-mod chain_sim;
+mod arbitro;
 mod chain_src;
 mod err;
 mod tick_math;

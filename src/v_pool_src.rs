@@ -23,6 +23,13 @@ impl AnyPoolSrc {
         }
     }
 
+    pub async fn into_sim(&self) -> crate::v_pool_sim::AnyPoolSim {
+        match self {
+            AnyPoolSrc::V2(v2_pool) => crate::v_pool_sim::AnyPoolSim::V2(v2_pool.into_sim().await),
+            AnyPoolSrc::V3(v3_pool) => crate::v_pool_sim::AnyPoolSim::V3(v3_pool.into_sim().await),
+        }
+    }
+
     pub async fn get_tokens(&self) -> [H160; 2] {
         match self {
             AnyPoolSrc::V2(v2_pool) => [

@@ -24,7 +24,6 @@ pub struct V3PoolSrc {
 }
 
 impl V3PoolSrc {
-
     pub async fn new(
         address: Address,
         token0: Arc<RwLock<Token>>,
@@ -242,5 +241,23 @@ impl V3PoolSrc {
 
         self.active_ticks.sort_by_key(|t| t.tick);
     }
+
+    pub async fn into_sim(
+        &self)
+      -> V3PoolSim {
+        V3PoolSim::new(
+            self.address.clone(),
+            self.fee.clone(),
+            self.exchange.clone(),
+            self.version.clone(),
+            self.token0.read().await.clone(),
+            self.token1.read().await.clone(),
+            self.tick_spacing,
+            self.active_ticks.clone(),
+            self.liquidity,
+            self.x96price,
+        )
+    }
 }
+
 
