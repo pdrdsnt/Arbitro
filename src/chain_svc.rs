@@ -14,19 +14,10 @@ struct Chunk {
 
 pub struct ChainDataService {
     pub ws_providers: Arc<Vec<Provider<Ws>>>,
-    filter: Filter,
 
-    // Block subscription
-    block_tx: UnboundedSender<Block<H256>>,
-    pub block_rx: Arc<UnboundedReceiver<Block<H256>>>,
-
-    // Log subscription
-    log_tx: UnboundedSender<Log>,
-    pub log_rx: Arc<UnboundedReceiver<Log>>,
-
-    chunks: Vec<Chunk>,
-    all_addrs: HashSet<H160>,
-    collapse_threshold: usize,
+    //chunks: Vec<Chunk>,
+    //all_addrs: HashSet<H160>,
+    //collapse_threshold: usize,
 }
 
 impl ChainDataService {
@@ -43,30 +34,17 @@ impl ChainDataService {
         }
 
         let ws_providers = Arc::new(providers);
-        let (block_tx, block_rx) = unbounded_channel();
-        let (log_tx, log_rx) = unbounded_channel();
-
+        
         let mut svc = Self {
             ws_providers,
-            filter: Filter::new(),
-            block_tx,
-            block_rx: Arc::new(block_rx),
-            log_tx,
-            log_rx: Arc::new(log_rx),
-            chunks: Vec::new(),
-            all_addrs: initial_addrs.into_iter().collect(),
-            collapse_threshold,
         };
-
-        svc.spawn_block_subscriber();
-        svc.spawn_chunk(None);
 
         Ok(svc)
     }
     /// Spawn block subscriber that forwards to `block_tx`
-    fn spawn_block_subscriber(&self) {
+    pub fn spawn_block_subscriber(&self) -> UnboundedReceiver<Block<H256>> {
+        let (block_tx, block_rx) = unbounded_channel();
         let providers = self.ws_providers.clone();
-        let block_tx = self.block_tx.clone();
 
         tokio::spawn(async move {
             let mut merged = SelectAll::new();
@@ -79,8 +57,33 @@ impl ChainDataService {
                 let _ = block_tx.send(header);
             }
         });
+        
+        block_rx
+    
+    }
+
+
+    pub fn spawn_log_subscriber(&self, filter: Filter) -> UnboundedReceiver<Log> {
+        let (log_tx, log_rx) = unbounded_channel();
+        let providers = self.ws_providers.clone();
+
+        tokio::spawn(async move {
+            let mut merged = SelectAll::new();
+            for ws in &*providers {
+                if let Ok(stream) = ws.subscribe_logs(&filter).await {
+                    merged.push(stream);
+                }
+            }
+            while let Some(header) = merged.next().await {
+                let _ = log_tx.send(header);
+            }
+        });
+        
+        log_rx
+    
     }
     /// Spawn log subscription chunk
+    /* i dont need that for now and idk how to implement in a idiomatic way 
     fn spawn_chunk(&mut self, _addrs: Option<&HashSet<H160>>) {
         let addrs = match _addrs {
             Some(addrs) => addrs,
@@ -135,5 +138,27 @@ impl ChainDataService {
             chunk.handle.abort();
         }
         self.spawn_chunk(None);
+    }
+    */
+
+
+ /// Spawn mempool subscriber that forwards tx hashes to `mempool_tx`
+    pub fn spawn_mempool_subscriber(&self) -> UnboundedReceiver<TxHash> {
+        let providers = self.ws_providers.clone();
+        let (mempool_tx,mempool_rx) = unbounded_channel();
+
+        tokio::spawn(async move {
+            let mut merged = SelectAll::new();
+            for ws in &*providers {
+                if let Ok(stream) = ws.subscribe_pending_txs().await {
+                    merged.push(stream);
+                }
+            }
+            while let Some(tx_hash) = merged.next().await {
+                let _ = mempool_tx.send(tx_hash);
+            }
+        });
+
+        mempool_rx
     }
 }

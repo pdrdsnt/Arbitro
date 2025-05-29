@@ -12,7 +12,7 @@ use ethers::types::{Block, Chain, Filter, Log, H160, H256, U256, U64};
 
 use ethers_providers::Http;
 use futures::future::join_all;
-use futures::StreamExt;
+use futures::{SinkExt, StreamExt};
 use serde_json::Value;
 
 use tokio::sync::mpsc::UnboundedReceiver;
@@ -25,9 +25,9 @@ use tokio_stream::wrappers::UnboundedReceiverStream;
 use futures::stream::{FuturesUnordered, SelectAll};
 
 use crate::arbitro::Arbitro;
-use crate::block_service::ChainDataService;
 use crate::blockchain_db::{DexModel, TokenModel};
 use crate::chain_graph::ChainGraph;
+use crate::chain_svc::ChainDataService;
 use crate::err::PoolUpdateError;
 use crate::factory::Factory;
 use crate::mapped_vec::{self, MappedVec};
@@ -43,12 +43,9 @@ use crate::{factory::AnyFactory, pair::Pair, token::Token, AbisData};
 /// Observes on-chain state: pools, tokens, and factories.
 pub struct ChainSrc {
     provider: Arc<Provider<MultiProvider>>,
-    chain_service: ChainDataService,
-    pub arbitro: Arbitro,
-    pub pools: MappedVec<Arc<RwLock<AnyPoolSrc>>>,
+    pools: MappedVec<Arc<RwLock<AnyPoolSrc>>>,
     pub tokens: MappedVec<Arc<RwLock<Token>>>,
     factories: MappedVec<Arc<RwLock<AnyFactory>>>,
-    ws_urls: Vec<String>,
     abis: Arc<AbisData>, //one struct with all abis
 }
 
@@ -57,7 +54,6 @@ impl ChainSrc {
     pub async fn new(
         abis: Arc<AbisData>,
         provider: Arc<Provider<MultiProvider>>,
-        ws_urls: Vec<String>,
         tokens_list: &Vec<TokenModel>,
         _dexes: &Vec<DexModel>,
     ) -> Self {
@@ -105,49 +101,30 @@ impl ChainSrc {
         };
 
         let mut src = ChainSrc {
-            arbitro: Arbitro::new(MappedVec::new()),
             provider,
             pools: MappedVec::new(),
             tokens: MappedVec::from_array(tokens),
             factories: MappedVec::from_array(factories),
-            ws_urls: ws_urls.clone(),
             abis,
-            chain_service: ChainDataService::new(ws_urls.clone(), [], 8).await.unwrap(),
         };
 
         src.search_all_pools().await.unwrap();
-        let pool_sims= join_all(src.pools.iter().map(|z| async {
-            let lock = z.1.read().await;
-            lock.into_sim().await
-        })).await;
 
-
-        src.arbitro = Arbitro::new(MappedVec::from_array(pool_sims.into_iter().map(|x| {
-            (x.get_address(), x)
-        }).collect::<Vec<_>>()));
-        src   
+        src
     }
 
-    
-
-    pub fn spawn_new_block_listener(
-        shared_block: Arc<Mutex<Option<Block<H256>>>>,
-        mut block_rx: UnboundedReceiver<Block<H256>>,
-    ) -> JoinHandle<()> {
-        tokio::spawn(async move {
-            println!("▶️ Block listener started");
-
-            while let Some(block) = block_rx.recv().await {
-                if let Some(n) = block.number {
-                    println!("🚀 New block #{}", n);
-                }
-
-                let mut shared = shared_block.lock().await;
-                *shared = Some(block);
+    pub async fn create_sim(&self) -> Vec<(H160, AnyPoolSim)> {
+        let futures = self.pools.iter().map(|(addr, pool)| {
+            let addr = addr.clone(); // clone H160
+            let pool = pool.clone(); // clone Arc<RwLock<...>> or similar
+            async move {
+                let lock = pool.read().await;
+                let sim = lock.into_sim().await;
+                (addr, sim)
             }
+        });
 
-            println!("🔴 Block listener ended");
-        })
+        join_all(futures).await
     }
 
     pub async fn snapshot_tokens(&self) -> MappedVec<Token> {
@@ -157,18 +134,6 @@ impl ChainSrc {
             mapped_vec.insert(tkn.address.clone(), tkn.clone());
         }
         mapped_vec
-    }
-
-    pub async fn monitor(&mut self) {
-        let mut ws_providers: Vec<Provider<Ws>> = Vec::new();
-        for url in self.ws_urls.clone() {
-            if let Ok(connection) = Provider::<Ws>::connect(url).await {
-                ws_providers.push(connection);
-            }
-        }
-        
-        // Here we’ll just wait on Ctrl+C so the process lives:
-        tokio::signal::ctrl_c().await.unwrap();
     }
 
     pub async fn update_all(&mut self) {

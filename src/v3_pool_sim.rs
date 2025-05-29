@@ -184,6 +184,9 @@ impl V3PoolSim {
             remaining = remaining.checked_sub(possible)?;
         }
 
+        self.liquidity = curr_liq;
+        self.x96price = curr_price;
+
         // build Trade
         Some(Trade {
             dex: self.exchange.clone(),
