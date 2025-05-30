@@ -1,6 +1,6 @@
 #![allow(warnings)]
 mod anvil_test;
-mod other_thing;
+mod chain_observer;
 mod chain_svc;
 mod block_decoder;
 mod blockchain_db;

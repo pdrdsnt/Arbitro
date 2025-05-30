@@ -23,10 +23,10 @@ use crate::{
 };
 
 pub struct BiggerPicture {
-    watchers: Vec<ChainWatcher>,
+    watchers: Vec<ChainObserver>,
 }
 
-pub struct ChainWatcher {
+pub struct ChainObserver {
     chain_data: ChainData,
     chain_settings: ChainSettings,
     block_service: ChainDataService,
@@ -34,7 +34,7 @@ pub struct ChainWatcher {
     chain_src: ChainSrc,
 }
 
-impl ChainWatcher {
+impl ChainObserver {
     pub async fn new(chain_data: ChainData, chain_settings: ChainSettings) -> Self {
         let _chain_data = chain_data.clone();
         let arc_ws_provider = Arc::new(_chain_data.ws_providers);
@@ -84,32 +84,7 @@ impl ChainWatcher {
 
         while let Some(log) = log_rx.recv().await {
             if let Some(action) = PoolAction::parse_pool_action(&log) {
-                match action {
-                    PoolAction::SwapV2 {
-                        amount0_in,
-                        amount1_in,
-                        ..
-                    } => {
-                        println!("Swap detected - in0: {}, in1: {}", amount0_in, amount1_in);
-                    }
-                    PoolAction::MintV2 {
-                        amount0, amount1, ..
-                    } => {
-                        println!("Mint detected - amount0: {}, amount1: {}", amount0, amount1);
-                    }
-                    PoolAction::BurnV2 {
-                        amount0, amount1, ..
-                    } => {
-                        println!("Burn detected - amount0: {}, amount1: {}", amount0, amount1);
-                    }
-                    PoolAction::SwapV3 {
-                        sender, recipient, ..
-                    } => todo!(),
-                    PoolAction::MintV3 { sender, owner, .. } => todo!(),
-                    PoolAction::BurnV3 {
-                        owner, tick_lower, ..
-                    } => todo!(),
-                }
+                
             }
         }
     }

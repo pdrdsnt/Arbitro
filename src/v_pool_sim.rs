@@ -42,4 +42,31 @@ impl AnyPoolSim {
             AnyPoolSim::V3(v3_pool) => (v3_pool.token0.address == *token),
         }
     }
+
+    pub fn apply_swap(&mut self, amount0_in: U256, amount1_in: U256, amount0_out: U256, amount1_out: U256) {
+        match self {
+            AnyPoolSim::V2(v2_pool_sim) => v2_pool_sim.apply_swap(amount0_in, amount1_in, amount0_out, amount1_out),
+            AnyPoolSim::V3(v3_pool_sim) => // V3 only needs the amount_in and a direction flag (from0)
+                if !amount0_in.is_zero() {
+                    v3_pool_sim.trade(amount0_in, true);
+                } else {
+                    v3_pool_sim.trade(amount1_in, false);
+                },
+        }
+    }
+
+    pub fn apply_mint(&mut self, amount0_in: U256, amount1_in: U256) {
+        match self {
+            AnyPoolSim::V2(v2_pool_sim) => todo!(),
+            AnyPoolSim::V3(v3_pool_sim) => todo!(),
+        }
+    }
+
+    pub fn apply_burn(&mut self, amount0_in: U256, amount1_in: U256) {
+        match self {
+            AnyPoolSim::V2(v2_pool_sim) => todo!(),
+            AnyPoolSim::V3(v3_pool_sim) => todo!(),
+        }
+    }
+
 }

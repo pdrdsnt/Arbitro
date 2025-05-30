@@ -105,7 +105,17 @@ impl V2PoolSim {
         })
     }
 
-        /// Mint (add liquidity) to the pool: both reserves increase
+     /// Apply an on-chain Swap event: update reserves exactly by logged amounts
+    pub fn apply_swap(&mut self, amount0_in: U256, amount1_in: U256, amount0_out: U256, amount1_out: U256) {
+        self.reserves0 = self.reserves0
+            .checked_add(amount0_in).unwrap_or(self.reserves0)
+            .checked_sub(amount0_out).unwrap_or(U256::zero());
+        self.reserves1 = self.reserves1
+            .checked_add(amount1_in).unwrap_or(self.reserves1)
+            .checked_sub(amount1_out).unwrap_or(U256::zero());
+    }
+
+    /// Mint (add liquidity) to the pool: both reserves increase
     pub fn mint(&mut self, amount0: U256, amount1: U256) {
         self.reserves0 = self.reserves0.checked_add(amount0).unwrap_or(self.reserves0);
         self.reserves1 = self.reserves1.checked_add(amount1).unwrap_or(self.reserves1);
@@ -116,5 +126,4 @@ impl V2PoolSim {
         self.reserves0 = self.reserves0.checked_sub(amount0).unwrap_or(U256::zero());
         self.reserves1 = self.reserves1.checked_sub(amount1).unwrap_or(U256::zero());
     }
-
 }
