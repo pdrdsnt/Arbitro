@@ -12,4 +12,14 @@ pub enum PoolUpdateError {
 
     #[error("Contract call error: {0}")]
     Rpc(#[from] ContractError<Provider<MultiProvider>>),
+    
+    #[error("{0}")]
+    Custom(String),
+}
+
+// manually impl From<String>
+impl From<String> for PoolUpdateError {
+    fn from(s: String) -> Self {
+        PoolUpdateError::Custom(s)
+    }
 }
