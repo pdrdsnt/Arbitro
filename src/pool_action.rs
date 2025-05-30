@@ -5,7 +5,7 @@ use ethers::{
     utils::keccak256,
 };
 
-#[derive(Debug)]
+#[derive(Debug,)]
 pub enum PoolAction {
     // V2 actions
     SwapV2 {
@@ -57,27 +57,15 @@ pub enum PoolAction {
 }
 
 impl PoolAction {
-    pub fn parse_pool_action(log: &Log) -> Option<PoolAction> {
+    pub fn parse_pool_action(log: &Log,) -> Option<(PoolAction,H160),> {
         // V2 signatures
-        let swap_v2_sig = H256::from_slice(&keccak256(
-            b"Swap(address,uint256,uint256,uint256,uint256,address)",
-        ));
-        let mint_v2_sig = H256::from_slice(&keccak256(
-            b"Mint(address,uint256,uint256)",
-        ));
-        let burn_v2_sig = H256::from_slice(&keccak256(
-            b"Burn(address,uint256,uint256,address)",
-        ));
+        let swap_v2_sig = H256::from_slice(&keccak256(b"Swap(address,uint256,uint256,uint256,uint256,address)",),);
+        let mint_v2_sig = H256::from_slice(&keccak256(b"Mint(address,uint256,uint256)",),);
+        let burn_v2_sig = H256::from_slice(&keccak256(b"Burn(address,uint256,uint256,address)",),);
         // V3 signatures
-        let swap_v3_sig = H256::from_slice(&keccak256(
-            b"Swap(address,address,int256,int256,uint160,uint128,int24)",
-        ));
-        let mint_v3_sig = H256::from_slice(&keccak256(
-            b"Mint(address,address,int24,int24,uint128,uint256,uint256)",
-        ));
-        let burn_v3_sig = H256::from_slice(&keccak256(
-            b"Burn(address,int24,int24,uint128,uint256,uint256)",
-        ));
+        let swap_v3_sig = H256::from_slice(&keccak256(b"Swap(address,address,int256,int256,uint160,uint128,int24)",),);
+        let mint_v3_sig = H256::from_slice(&keccak256(b"Mint(address,address,int24,int24,uint128,uint256,uint256)",),);
+        let burn_v3_sig = H256::from_slice(&keccak256(b"Burn(address,int24,int24,uint128,uint256,uint256)",),);
 
         // Prepare RawLog for decoding
         let raw_log = RawLog {
@@ -85,10 +73,11 @@ impl PoolAction {
             data: log.data.0.to_vec(),
         };
 
-        match log.topics.get(0)? {
+        let mut top =
+        match log.topics.get(0,)? {
             // V2
             topic if topic == &swap_v2_sig => {
-                let e = SwapEventV2::decode_log(&raw_log).ok()?;
+                let e = SwapEventV2::decode_log(&raw_log,).ok()?;
                 Some(PoolAction::SwapV2 {
                     sender: e.sender,
                     amount0_in: e.amount0_in,
@@ -96,28 +85,28 @@ impl PoolAction {
                     amount0_out: e.amount0_out,
                     amount1_out: e.amount1_out,
                     to: e.to,
-                })
-            }
+                },)
+            },
             topic if topic == &mint_v2_sig => {
-                let e = MintEventV2::decode_log(&raw_log).ok()?;
+                let e = MintEventV2::decode_log(&raw_log,).ok()?;
                 Some(PoolAction::MintV2 {
                     sender: e.sender,
                     amount0: e.amount0,
                     amount1: e.amount1,
-                })
-            }
+                },)
+            },
             topic if topic == &burn_v2_sig => {
-                let e = BurnEventV2::decode_log(&raw_log).ok()?;
+                let e = BurnEventV2::decode_log(&raw_log,).ok()?;
                 Some(PoolAction::BurnV2 {
                     sender: e.sender,
                     amount0: e.amount0,
                     amount1: e.amount1,
                     to: e.to,
-                })
-            }
+                },)
+            },
             // V3
             topic if topic == &swap_v3_sig => {
-                let e = SwapEventV3::decode_log(&raw_log).ok()?;
+                let e = SwapEventV3::decode_log(&raw_log,).ok()?;
                 Some(PoolAction::SwapV3 {
                     sender: e.sender,
                     recipient: e.recipient,
@@ -126,10 +115,10 @@ impl PoolAction {
                     sqrt_price_x96: e.sqrt_price_x96,
                     liquidity: e.liquidity,
                     tick: e.tick,
-                })
-            }
+                },)
+            },
             topic if topic == &mint_v3_sig => {
-                let e = MintEventV3::decode_log(&raw_log).ok()?;
+                let e = MintEventV3::decode_log(&raw_log,).ok()?;
                 Some(PoolAction::MintV3 {
                     sender: e.sender,
                     owner: e.owner,
@@ -138,10 +127,10 @@ impl PoolAction {
                     amount: e.amount,
                     amount0: e.amount0,
                     amount1: e.amount1,
-                })
-            }
+                },)
+            },
             topic if topic == &burn_v3_sig => {
-                let e = BurnEventV3::decode_log(&raw_log).ok()?;
+                let e = BurnEventV3::decode_log(&raw_log,).ok()?;
                 Some(PoolAction::BurnV3 {
                     owner: e.owner,
                     tick_lower: e.tick_lower,
@@ -149,19 +138,23 @@ impl PoolAction {
                     amount: e.amount,
                     amount0: e.amount0,
                     amount1: e.amount1,
-                })
-            }
+                },)
+            },
             _ => None,
+        };
+
+        if let Some(r) = top {
+            Some((r,log.address))
+        }else {
+            None
         }
+
     }
 }
 
 // V2 event structs
-#[derive(Debug, Clone, EthEvent)]
-#[ethevent(
-    name = "Swap",
-    abi = "Swap(address,uint256,uint256,uint256,uint256,address)"
-)]
+#[derive(Debug, Clone, EthEvent,)]
+#[ethevent(name = "Swap", abi = "Swap(address,uint256,uint256,uint256,uint256,address)")]
 struct SwapEventV2 {
     pub sender: Address,
     pub amount0_in: U256,
@@ -171,7 +164,7 @@ struct SwapEventV2 {
     pub to: Address,
 }
 
-#[derive(Debug, Clone, EthEvent)]
+#[derive(Debug, Clone, EthEvent,)]
 #[ethevent(name = "Mint", abi = "Mint(address,uint256,uint256)")]
 struct MintEventV2 {
     pub sender: Address,
@@ -179,11 +172,8 @@ struct MintEventV2 {
     pub amount1: U256,
 }
 
-#[derive(Debug, Clone, EthEvent)]
-#[ethevent(
-    name = "Burn",
-    abi = "Burn(address,uint256,uint256,address)"
-)]
+#[derive(Debug, Clone, EthEvent,)]
+#[ethevent(name = "Burn", abi = "Burn(address,uint256,uint256,address)")]
 struct BurnEventV2 {
     pub sender: Address,
     pub amount0: U256,
@@ -192,11 +182,8 @@ struct BurnEventV2 {
 }
 
 // V3 event structs
-#[derive(Debug, Clone, EthEvent)]
-#[ethevent(
-    name = "Swap",
-    abi = "Swap(address,address,int256,int256,uint160,uint128,int24)"
-)]
+#[derive(Debug, Clone, EthEvent,)]
+#[ethevent(name = "Swap", abi = "Swap(address,address,int256,int256,uint160,uint128,int24)")]
 struct SwapEventV3 {
     pub sender: Address,
     pub recipient: Address,
@@ -207,11 +194,8 @@ struct SwapEventV3 {
     pub tick: i32,
 }
 
-#[derive(Debug, Clone, EthEvent)]
-#[ethevent(
-    name = "Mint",
-    abi = "Mint(address,address,int24,int24,uint128,uint256,uint256)"
-)]
+#[derive(Debug, Clone, EthEvent,)]
+#[ethevent(name = "Mint", abi = "Mint(address,address,int24,int24,uint128,uint256,uint256)")]
 struct MintEventV3 {
     pub sender: Address,
     pub owner: Address,
@@ -222,11 +206,8 @@ struct MintEventV3 {
     pub amount1: U256,
 }
 
-#[derive(Debug, Clone, EthEvent)]
-#[ethevent(
-    name = "Burn",
-    abi = "Burn(address,int24,int24,uint128,uint256,uint256)"
-)]
+#[derive(Debug, Clone, EthEvent,)]
+#[ethevent(name = "Burn", abi = "Burn(address,int24,int24,uint128,uint256,uint256)")]
 struct BurnEventV3 {
     pub owner: Address,
     pub tick_lower: i32,

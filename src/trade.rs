@@ -1,7 +1,6 @@
 use ethers::{core::types::U256, types::H160};
 
-
-#[derive(Clone, Debug, PartialEq, PartialOrd, Eq, Ord)]
+#[derive(Clone, Debug, PartialEq, PartialOrd, Eq, Ord,)]
 pub struct Trade {
     pub dex: String,
     pub version: String,

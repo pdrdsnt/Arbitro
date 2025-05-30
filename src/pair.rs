@@ -1,40 +1,38 @@
-use std::{hash::{Hash, Hasher}};
+use std::hash::{Hash, Hasher};
+
 use ethers::types::H160;
+
 use crate::token::Token;
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug,)]
 pub struct Pair {
     pub a: H160,
     pub b: H160,
 }
 
 impl Pair {
-    pub fn new(token1: H160, token2: H160) -> Self {
+    pub fn new(token1: H160, token2: H160,) -> Self {
         if token1 < token2 {
-            Pair { a: token1, b: token2 }
+            Pair { a: token1, b: token2, }
         } else {
-            Pair { a: token2, b: token1 }
+            Pair { a: token2, b: token1, }
         }
     }
 }
 
 impl PartialEq for Pair {
-    fn eq(&self, other: &Self) -> bool {
-        self.a == other.a && self.b == other.b
-    }
+    fn eq(&self, other: &Self,) -> bool { self.a == other.a && self.b == other.b }
 }
 
 impl Eq for Pair {}
 
 impl Hash for Pair {
-    fn hash<H: Hasher>(&self, state: &mut H) {
-        self.a.hash(state);
-        self.b.hash(state);
+    fn hash<H: Hasher,>(&self, state: &mut H,) {
+        self.a.hash(state,);
+        self.b.hash(state,);
     }
 }
 
-impl From<Pair> for String {
-    fn from(val: Pair) -> Self {
-        format!("{}{}", val.a, val.b)
-    }
+impl From<Pair,> for String {
+    fn from(val: Pair,) -> Self { format!("{}{}", val.a, val.b) }
 }

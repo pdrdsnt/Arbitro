@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 
-use ethers::types::H160;
+use ethers::types::{H160, U256};
 
 use crate::{
     chain_src::ChainSrc, mapped_vec::MappedVec, pool_action::PoolAction, token::Token,
@@ -32,33 +32,76 @@ impl Arbitro {
             tokens_by_pool.insert(*pool_addr, vec![(tokens[0], tokens[1])]);
         }
 
-        Self {
-            pools,
-            pools_by_token,
-            tokens_by_pool,
-        }
+        Self { pools, pools_by_token, tokens_by_pool }
     }
 
-    fn update_state(&mut self, action: PoolAction) {
+    pub fn update_state(&mut self, addr: &H160, action: PoolAction) {
         match action {
             PoolAction::SwapV2 { amount0_in, amount1_in, sender, amount0_out, amount1_out, to } => {
-                self.pools.get_mut(&to).unwrap().apply_swap(amount0_in, amount1_in, amount0_out, amount1_out);
-            },
-            PoolAction::MintV2 {
-                amount0, amount1, ..
-            } => {
-                println!("Mint detected - amount0: {}, amount1: {}", amount0, amount1);
+                self.pools.get_mut(addr).unwrap().apply_swap(
+                    amount0_in,
+                    amount1_in,
+                    amount0_out,
+                    amount1_out,
+                );
             }
-            PoolAction::BurnV2 {
-                amount0, amount1, ..
-            } => {
-                println!("Burn detected - amount0: {}, amount1: {}", amount0, amount1);
+            PoolAction::MintV2 { amount0, amount1, sender } => {
+                self.pools.get_mut(addr).unwrap().apply_mint(
+                    None,
+                    None,
+                    None,
+                    Some(amount0),
+                    Some(amount1),
+                );
             }
-            PoolAction::SwapV3 { sender, recipient, amount0, amount1, sqrt_price_x96, liquidity, tick } => todo!(),
-            PoolAction::MintV3 { sender, owner, .. } => todo!(),
-            PoolAction::BurnV3 {
-                owner, tick_lower, ..
-            } => todo!(),
+            PoolAction::BurnV2 { amount0, amount1, sender, to } => {
+                self.pools.get_mut(addr).unwrap().apply_burn(
+                    None,
+                    None,
+                    None,
+                    Some(amount0),
+                    Some(amount1),
+                );
+            }
+            PoolAction::SwapV3 {
+                sender,
+                recipient,
+                amount0,
+                amount1,
+                sqrt_price_x96,
+                liquidity,
+                tick,
+            } => {
+                self.pools.get_mut(addr).unwrap().apply_swap(
+                    U256::from(amount0.into_raw()),
+                    U256::from(amount1.into_raw()),
+                    U256::from(0),
+                    U256::from(0),
+                );
+            }
+            PoolAction::MintV3 {
+                sender,
+                owner,
+                tick_lower,
+                tick_upper,
+                amount,
+                amount0,
+                amount1,
+            } => {self.pools.get_mut(addr).unwrap().apply_mint(
+                    None,
+                    None,
+                    None,
+                    Some(amount0),
+                    Some(amount1),
+                );},
+            PoolAction::BurnV3 { owner, tick_lower, tick_upper, amount, amount0, amount1 } =>
+                {self.pools.get_mut(addr).unwrap().apply_burn(
+                    None,
+                    None,
+                    None,
+                    Some(amount0),
+                    Some(amount1),
+                );},
         }
     }
 }

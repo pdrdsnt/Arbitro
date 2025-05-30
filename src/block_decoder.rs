@@ -1,87 +1,102 @@
-use ethers::abi::{Abi, parse_abi, RawLog, Tokenizable};
-use ethers::types::{Block, Log, Transaction, H256, H160};
-use ethers::utils::hex;
 use std::sync::Arc;
+
+use ethers::{
+    abi::{parse_abi, Abi, RawLog, Token, Tokenizable},
+    types::{Address, Block, Log, Transaction, H160, H256},
+    utils::hex,
+};
 
 use crate::AbisData;
 
-pub struct BlockDecoder {
-    abis: Arc<AbisData>,
-}
+pub struct Decoder();
 
-impl BlockDecoder {
-    pub fn new(abis: Arc<AbisData>) -> Self {
-        Self { abis }
-    }
-
-    /// Decode a raw block header (no ABIs needed here, just print number)
-    pub async fn decode_block(&self, block: Block<H256>) {
-        let num = block.number.unwrap();
-        println!("Decoded block #{}", num);
-    }
-
-    /// Decode a full transaction, matching the selector against your ABIs
-    pub async fn decode_tx(&self, tx: Transaction) {
-        // 1) Identify the target contract
+impl Decoder {
+    pub fn decode_tx_static(
+        abis: &AbisData, 
+        tx: &Transaction
+    ) -> DecodedTx {
         if let Some(to_addr) = tx.to {
-            // 2) Extract first 4 bytes of `input` as the selector
-            let input_bytes = tx.input.0;
+            let input_bytes = &tx.input.0;
+
             if input_bytes.len() < 4 {
                 println!("— no calldata for tx {:?}", tx.hash);
-                return;
+                return DecodedTx::Unknown { 
+                    selector: [0u8; 4], 
+                    to: to_addr 
+                };
             }
+
             let selector: [u8; 4] = input_bytes[0..4].try_into().unwrap();
 
-            // 3) Try matching against V2 Pool ABI
-            if let Some(func) = self
-                .abis
+            if let Some(func) = abis
                 .v2_pool
                 .functions()
-                // `short_signature` gives the 4-byte selector for a function :contentReference[oaicite:0]{index=0}
                 .find(|f| f.short_signature() == selector)
             {
-                
-                // Decode the remaining bytes into tokens
                 match func.decode_input(&input_bytes[4..]) {
                     Ok(tokens) => {
-                        println!("V2 Pool  call on {:?}: {:?}", &func.name, tokens);
+                        return DecodedTx::V2 { 
+                            func: func.name.clone(), 
+                            tokens 
+                        };
                     }
-                    Err(e) => eprintln!("decode_input error: {:?}", e),
+                    Err(e) => {
+                        eprintln!("decode_input error: {:?}", e);
+                        return DecodedTx::Unknown { selector, to: to_addr };
+                    }
                 }
-                return;
             }
 
-            // 4) Try matching against V3 Pool ABI
-            if let Some(func) = self
-                .abis
+            if let Some(func) = abis
                 .v3_pool
                 .functions()
-                .find(| f| f.short_signature() == selector)
+                .find(|f| f.short_signature() == selector)
             {
-                let tokens = func.decode_input(&input_bytes[4..]).unwrap();
-                println!("V3 Pool call on {:?}: {:?}", &func.name, tokens);
-                return;
+                match func.decode_input(&input_bytes[4..]) {
+                    Ok(tokens) => {
+                        return DecodedTx::V3 { 
+                            func: func.name.clone(), 
+                            tokens 
+                        };
+                    }
+                    Err(e) => {
+                        eprintln!("decode_input error: {:?}", e);
+                        return DecodedTx::Unknown { selector, to: to_addr };
+                    }
+                }
             }
 
-            // 5) Check ERC-20 `transfer` or `approve` via its ABI
-            if let Some(func) = self
-                .abis
+            if let Some(func) = abis
                 .bep_20
                 .functions()
-                .find(|k| {
-                    // match on function name, or selector:
-                    (k.name == "transfer" || k.name == "approve") &&
-                    k.short_signature() == selector
-                })
+                .find(|k| (k.name == "transfer" || k.name == "approve") && k.short_signature() == selector)
             {
-                let tokens = func.decode_input(&input_bytes[4..]).unwrap();
-                println!("ERC-20 `{}` on {:?}: {:?}", func.name, to_addr, tokens);
-                return;
+                match func.decode_input(&input_bytes[4..]) {
+                    Ok(tokens) => {
+                        return DecodedTx::Token { 
+                            func: func.name.clone(), 
+                            tokens 
+                        };
+                    }
+                    Err(e) => {
+                        eprintln!("decode_input error: {:?}", e);
+                        return DecodedTx::Unknown { selector, to: to_addr };
+                    }
+                }
             }
 
-            // 6) Otherwise, unknown or malicious
-            println!("Unrecognized tx to {:?}, selector 0x{}", to_addr, hex::encode(selector));
+            return DecodedTx::Unknown { selector, to: to_addr };
         }
-    }
 
+        // No `to` field
+        DecodedTx::Unknown { selector: [0u8; 4], to: Address::zero() }
+    }
+}
+
+#[derive(Debug)]
+pub enum DecodedTx {
+    V2 { func: String, tokens: Vec<Token> },
+    V3 { func: String, tokens: Vec<Token> },
+    Token { func: String, tokens: Vec<Token> },
+    Unknown { selector: [u8; 4], to: Address },
 }

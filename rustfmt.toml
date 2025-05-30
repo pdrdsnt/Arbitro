@@ -1,0 +1,27 @@
+# General line width
+max_width = 100
+tab_spaces = 4
+hard_tabs = false
+
+# Brace and indent style
+brace_style = "PreferSameLine"
+control_brace_style = "AlwaysSameLine"
+
+# Use heuristics to keep everything in one line if possible
+use_small_heuristics = "Max"
+
+# For wrapping: break long arrays or args, but not fully vertical
+fn_params_layout = "Compressed"
+where_single_line = true
+struct_lit_single_line = true
+match_arm_blocks = false
+
+# Nightly features for better control
+unstable_features = true
+overflow_delimited_expr = true
+group_imports = "StdExternalCrate"
+imports_granularity = "Crate"
+normalize_comments = true
+wrap_comments = false
+force_multiline_blocks = true
+reorder_impl_items = true
