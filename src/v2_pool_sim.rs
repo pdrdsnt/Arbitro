@@ -41,7 +41,7 @@ impl V2PoolSim {
         }
     }
 
-    pub fn trade(&self, amount_in: U256, from0: bool) -> Option<Trade> {
+    pub fn trade(&mut self, amount_in: U256, from0: bool) -> Option<Trade> {
         if (from0 && self.reserves0 == U256::zero()) || (!from0 && self.reserves1 == U256::zero()) {
             return None;
         }
@@ -79,6 +79,16 @@ impl V2PoolSim {
             .checked_mul(U256::from(10000))?
             .checked_div(current_price)?;
 
+
+        // Commit state
+        if from0 {
+            self.reserves0 = new_reserve_in;
+            self.reserves1 = new_reserve_out;
+        } else {
+            self.reserves1 = new_reserve_in;
+            self.reserves0 = new_reserve_out;
+        }
+
         Some(Trade {
             dex: self.exchange.clone(),
             version: self.version.clone(),
@@ -94,4 +104,17 @@ impl V2PoolSim {
             raw_price: current_price,
         })
     }
+
+        /// Mint (add liquidity) to the pool: both reserves increase
+    pub fn mint(&mut self, amount0: U256, amount1: U256) {
+        self.reserves0 = self.reserves0.checked_add(amount0).unwrap_or(self.reserves0);
+        self.reserves1 = self.reserves1.checked_add(amount1).unwrap_or(self.reserves1);
+    }
+
+    /// Burn (remove liquidity) from the pool: both reserves decrease
+    pub fn burn(&mut self, amount0: U256, amount1: U256) {
+        self.reserves0 = self.reserves0.checked_sub(amount0).unwrap_or(U256::zero());
+        self.reserves1 = self.reserves1.checked_sub(amount1).unwrap_or(U256::zero());
+    }
+
 }

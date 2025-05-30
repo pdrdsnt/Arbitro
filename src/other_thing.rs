@@ -82,38 +82,38 @@ impl ChainWatcher {
         // Spawn the log subscriber
         let mut log_rx = self.block_service.spawn_log_subscriber(filter);
 
-            while let Some(log) = log_rx.recv().await {
-                if let Some(action) = PoolAction::parse_pool_action(&log) {
-                    match action {
-                        PoolAction::SwapV2 {
-                            amount0_in,
-                            amount1_in,
-                            ..
-                        } => {
-                            println!("Swap detected - in0: {}, in1: {}", amount0_in, amount1_in);
-                        }
-                        PoolAction::MintV2 {
-                            amount0, amount1, ..
-                        } => {
-                            println!("Mint detected - amount0: {}, amount1: {}", amount0, amount1);
-                        }
-                        PoolAction::BurnV2 {
-                            amount0, amount1, ..
-                        } => {
-                            println!("Burn detected - amount0: {}, amount1: {}", amount0, amount1);
-                        }
-                        PoolAction::SwapV3 {
-                            sender, recipient, ..
-                        } => todo!(),
-                        PoolAction::MintV3 { sender, owner, .. } => todo!(),
-                        PoolAction::BurnV3 {
-                            owner, tick_lower, ..
-                        } => todo!(),
+        while let Some(log) = log_rx.recv().await {
+            if let Some(action) = PoolAction::parse_pool_action(&log) {
+                match action {
+                    PoolAction::SwapV2 {
+                        amount0_in,
+                        amount1_in,
+                        ..
+                    } => {
+                        println!("Swap detected - in0: {}, in1: {}", amount0_in, amount1_in);
                     }
+                    PoolAction::MintV2 {
+                        amount0, amount1, ..
+                    } => {
+                        println!("Mint detected - amount0: {}, amount1: {}", amount0, amount1);
+                    }
+                    PoolAction::BurnV2 {
+                        amount0, amount1, ..
+                    } => {
+                        println!("Burn detected - amount0: {}, amount1: {}", amount0, amount1);
+                    }
+                    PoolAction::SwapV3 {
+                        sender, recipient, ..
+                    } => todo!(),
+                    PoolAction::MintV3 { sender, owner, .. } => todo!(),
+                    PoolAction::BurnV3 {
+                        owner, tick_lower, ..
+                    } => todo!(),
                 }
-            };
+            }
         }
     }
+}
 
 #[derive(Clone)]
 pub struct ChainData {

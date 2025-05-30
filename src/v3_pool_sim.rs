@@ -444,4 +444,60 @@ impl V3PoolSim {
             current.checked_sub(_net)
         }
     }
+
+    pub fn mint(&mut self, tick_lower: i32, tick_upper: i32, amount: i128) {
+        self.update_tick_liquidity(tick_lower, amount);
+        self.update_tick_liquidity(tick_upper, -amount);
+
+        let current_tick = tick_math::tick_from_price(self.x96price).unwrap();
+        if tick_lower <= current_tick && current_tick < tick_upper {
+            self.liquidity = self.liquidity.saturating_add(U256::from(amount as u128));
+        }
+    }
+
+    pub fn burn(&mut self, tick_lower: i32, tick_upper: i32, amount: i128) {
+        self.update_tick_liquidity(tick_lower, -amount);
+
+        self.update_tick_liquidity(tick_upper, amount);
+
+        let current_tick = tick_math::tick_from_price(self.x96price).unwrap();
+        if tick_lower <= current_tick && current_tick < tick_upper {
+            self.liquidity = self.liquidity.saturating_sub(U256::from(amount as u128));
+        }
+    }
+
+    pub fn update_tick_liquidity(&mut self, tick: i32, amount: i128) {
+        if self.active_ticks.is_empty() {
+            return; // nothing to do, or maybe insert if in range
+        }
+
+        let first = self.active_ticks.first().unwrap().tick;
+        let last = self.active_ticks.last().unwrap().tick;
+
+        // out of range: ignore
+        if tick < first || tick > last {
+            return;
+        }
+
+        match self.active_ticks.binary_search_by_key(&tick, |t| t.tick) {
+            Ok(pos) => {
+                // found existing tick
+                let tick_ref = &mut self.active_ticks[pos];
+                tick_ref.liquidityNet += amount;
+                if tick_ref.liquidityNet == 0 {
+                    self.active_ticks.remove(pos);
+                }
+            }
+            Err(pos) => {
+                // not found, insert at position pos
+                self.active_ticks.insert(
+                    pos,
+                    Tick {
+                        tick,
+                        liquidityNet: amount,
+                    },
+                );
+            }
+        }
+    }
 }
