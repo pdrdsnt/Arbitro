@@ -4,7 +4,7 @@ mod arbitro;
 mod block_decoder;
 mod blockchain_db;
 mod chain_graph;
-mod chain_observer;
+mod supervisor;
 mod simulacrum;
 mod chain_src;
 mod chain_svc;
