@@ -94,7 +94,11 @@ impl ChainObserver {
     }
 
     pub fn process_mempool() {
-        
+        //duplicate arbitro and update state of one pool in the new arbitro
+        //maybe a new struc that manages multiple arbitros and the specific modifications 
+        //mempool operations can fail so multiple possibilities 
+        //pools - modifications - 
+        //H160  - [{block, provider, trade}]
     }
 }
 
