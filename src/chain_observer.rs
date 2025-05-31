@@ -9,6 +9,7 @@ use ethers::{
 };
 use ethers_providers::{Provider, Ws};
 use futures::io::Seek;
+use tokio::sync::Mutex;
 
 use crate::{
     arbitro::Arbitro, block_decoder::Decoder, blockchain_db::{DexModel, TokenModel}, chain_src::ChainSrc, chain_svc::ChainDataService, factory::AnyFactory, mapped_vec::MappedVec, mem_pool, mult_provider::MultiProvider, pool_action::PoolAction, AbisData
@@ -56,7 +57,7 @@ impl ChainObserver {
         }
     }
 
-    async fn start(&mut self,) {
+    async fn start(mut self,) {
         // Convert token addresses to H160
         let addresses: Vec<H160,> = self
             .chain_settings
@@ -72,6 +73,8 @@ impl ChainObserver {
         // Spawn the log subscriber
         let mut log_rx = self.block_service.spawn_log_subscriber(filter,);
         let mut mempool_rx = self.block_service.spawn_mempool_subscriber();
+    
+        let mut shared_arbitro = Arc::new(Mutex::new(self.arbitro));
 
         while let Some(mem_pool,) = mempool_rx.recv().await {
             let d = Decoder::decode_tx_static(&self.chain_data.abis,&mem_pool,);
@@ -81,17 +84,17 @@ impl ChainObserver {
                 crate::block_decoder::DecodedTx::Token { func, tokens } => todo!(),
                 crate::block_decoder::DecodedTx::Unknown { selector, to } => todo!(),
             }
-           
-
         }
 
         while let Some(log,) = log_rx.recv().await {
             if let Some((action,addr),) = PoolAction::parse_pool_action(&log,) {
-
-                self.arbitro.update_state(&addr, action);
-
+                shared_arbitro.lock().await.update_state(&addr, action);
             }
         }
+    }
+
+    pub fn process_mempool() {
+        
     }
 }
 
