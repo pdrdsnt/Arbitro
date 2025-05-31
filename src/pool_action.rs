@@ -1,7 +1,7 @@
 use ethers::{
     abi::{Address, RawLog},
     contract::EthEvent,
-    types::{Log, H160, H256, I256, U256},
+    types::{Log, H160, H256, U256},
     utils::keccak256,
 };
 
@@ -31,8 +31,8 @@ pub enum PoolAction {
     SwapV3 {
         sender: H160,
         recipient: H160,
-        amount0: I256,
-        amount1: I256,
+        amount0: U256,
+        amount1: U256,
         sqrt_price_x96: U256,
         liquidity: U256,
         tick: i32,
@@ -187,8 +187,8 @@ struct BurnEventV2 {
 struct SwapEventV3 {
     pub sender: Address,
     pub recipient: Address,
-    pub amount0: I256,
-    pub amount1: I256,
+    pub amount0: U256,
+    pub amount1: U256,
     pub sqrt_price_x96: U256,
     pub liquidity: U256,
     pub tick: i32,

@@ -73,8 +73,8 @@ impl Arbitro {
                 tick,
             } => {
                 self.pools.get_mut(addr).unwrap().apply_swap(
-                    U256::from(amount0.into_raw()),
-                    U256::from(amount1.into_raw()),
+                    U256::from(amount0),
+                    U256::from(amount1),
                     U256::from(0),
                     U256::from(0),
                 );

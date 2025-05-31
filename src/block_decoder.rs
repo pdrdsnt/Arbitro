@@ -2,11 +2,12 @@ use std::sync::Arc;
 
 use ethers::{
     abi::{parse_abi, Abi, RawLog, Token, Tokenizable},
-    types::{Address, Block, Log, Transaction, H160, H256},
+    types::{Address, Block, Log, Transaction, H160, H256, I256},
     utils::hex,
 };
+use num_traits::ToPrimitive;
 
-use crate::AbisData;
+use crate::{pool_action::PoolAction, AbisData};
 
 pub struct Decoder();
 
@@ -98,7 +99,7 @@ impl Decoder {
     /// Given a `DecodedTx::V2 { .. }` or `DecodedTx::V3 { .. }`, attempt to
     /// convert it into a `PoolAction` (SwapV2, MintV2, BurnV3, etc.).  
     /// Returns `None` if the function‐name + tokens don’t match the expected shape.
-    fn decode_tx_to_action(decoded: DecodedTx) -> Option<PoolAction> {
+    pub fn decode_tx_to_action(decoded: DecodedTx) -> Option<PoolAction> {
         match decoded {
             DecodedTx::V2 { func, tokens } => {
                 match func.as_str() {
@@ -207,7 +208,7 @@ impl Decoder {
                         ] = &tokens[..]
                         {
                             // Directly downcast the I256 → i32.
-                            let tick_i32 = tick_raw.as_i64() as i32;
+                            let tick_i32 = tick_raw.as_u128() as i32;
                             Some(PoolAction::SwapV3 {
                                 sender: *sender,
                                 recipient: *recipient,
@@ -243,13 +244,13 @@ impl Decoder {
                             Token::Uint(amount1),
                         ] = &tokens[..]
                         {
-                            let tick_lower_i32 = tick_lower_raw.as_i64() as i32;
-                            let tick_upper_i32 = tick_upper_raw.as_i64() as i32;
+                            let tick_lower_i32 = tick_lower_raw;
+                            let tick_upper_i32 = tick_upper_raw;
                             Some(PoolAction::MintV3 {
                                 sender: *sender,
                                 owner: *owner,
-                                tick_lower: tick_lower_i32,
-                                tick_upper: tick_upper_i32,
+                                tick_lower: tick_lower_i32.as_u32() as i32,
+                                tick_upper: tick_upper_i32.as_u32() as i32,
                                 amount: *amount,
                                 amount0: *amount0,
                                 amount1: *amount1,
@@ -278,8 +279,8 @@ impl Decoder {
                             Token::Uint(amount1),
                         ] = &tokens[..]
                         {
-                            let tick_lower_i32 = tick_lower_raw.as_i64() as i32;
-                            let tick_upper_i32 = tick_upper_raw.as_i64() as i32;
+                            let tick_lower_i32 = tick_lower_raw.as_u64() as i32;
+                            let tick_upper_i32 = tick_upper_raw.as_u64() as i32;
                             Some(PoolAction::BurnV3 {
                                 owner: *owner,
                                 tick_lower: tick_lower_i32,
