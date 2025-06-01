@@ -1,7 +1,7 @@
 #![allow(warnings)]
 mod anvil_test;
 mod arbitro;
-mod block_decoder;
+mod decoder;
 mod blockchain_db;
 mod chain_graph;
 mod supervisor;

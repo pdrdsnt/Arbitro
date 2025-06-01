@@ -13,7 +13,7 @@ use tokio::sync::Mutex;
 
 use crate::{
     arbitro::Arbitro,
-    block_decoder::Decoder,
+    decoder::Decoder,
     blockchain_db::{DexModel, TokenModel},
     chain_src::ChainSrc,
     chain_svc::ChainDataService,
@@ -31,7 +31,7 @@ pub struct Supervisor {
     chain_data: ChainData,
     chain_settings: ChainSettings,
     block_service: ChainDataService,
-    simulacrum: Simulacrum<Arbitro, H160, PoolAction>,
+    simulacrum: Simulacrum,
     chain_src: ChainSrc,
 }
 
@@ -53,7 +53,7 @@ impl Supervisor {
         .await;
 
         let abt = Arbitro::new(MappedVec::from_array(src.create_sim().await));
-        let sim: Simulacrum<Arbitro, H160, PoolAction> = Simulacrum::new(abt);
+        let sim: Simulacrum = Simulacrum::new(abt);
         Self { chain_data, chain_settings, block_service: svc, simulacrum: sim, chain_src: src }
     }
 
