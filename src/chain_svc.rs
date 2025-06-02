@@ -24,7 +24,8 @@ impl ChainDataService {
     pub async fn new(
         ws_urls: Vec<String,>, initial_addrs: impl IntoIterator<Item = H160,>, collapse_threshold: usize,
     ) -> anyhow::Result<Self,> {
-        let mut providers = Vec::with_capacity(ws_urls.len(),);
+        println!("start service");
+        let mut providers: Vec<Provider<Ws>> = Vec::with_capacity(ws_urls.len(),);
         for url in ws_urls {
             match Provider::<Ws,>::connect(&url,).await {
                 Ok(ws,) => providers.push(ws,),

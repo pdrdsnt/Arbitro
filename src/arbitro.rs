@@ -1,10 +1,13 @@
-use std::collections::HashMap;
+use std::{
+    collections::{BinaryHeap, HashMap, VecDeque},
+    str::FromStr,
+};
 
 use ethers::types::{H160, U256};
 
 use crate::{
     chain_src::ChainSrc, mapped_vec::MappedVec, pool_action::PoolAction, token::Token,
-    v3_pool_sim::V3PoolSim, v_pool_sim::AnyPoolSim,
+    trade::Trade, v3_pool_sim::V3PoolSim, v_pool_sim::AnyPoolSim,
 };
 
 pub struct Arbitro {
@@ -87,21 +90,53 @@ impl Arbitro {
                 amount,
                 amount0,
                 amount1,
-            } => {self.pools.get_mut(addr).unwrap().apply_mint(
+            } => {
+                self.pools.get_mut(addr).unwrap().apply_mint(
                     None,
                     None,
                     None,
                     Some(amount0),
                     Some(amount1),
-                );},
-            PoolAction::BurnV3 { owner, tick_lower, tick_upper, amount, amount0, amount1 } =>
-                {self.pools.get_mut(addr).unwrap().apply_burn(
+                );
+            }
+            PoolAction::BurnV3 { owner, tick_lower, tick_upper, amount, amount0, amount1 } => {
+                self.pools.get_mut(addr).unwrap().apply_burn(
                     None,
                     None,
                     None,
                     Some(amount0),
                     Some(amount1),
-                );},
+                );
+            }
         }
+    }
+
+    pub fn evaluate_hop(&mut self, from: &H160, pools: Vec<H160>, phanton: Vec<H160>,amount: U256) -> BinaryHeap<Trade> {
+        let mut trades_queue = BinaryHeap::<Trade>::new();
+        for pool_addr in pools {
+            if let Some(pool) = self.pools.get_mut(&pool_addr) {
+                let is0 = pool.is_0(from);
+                if let Some(trade) = pool.trade(amount, is0) {
+                    trades_queue.push(trade);
+                }
+            }
+        }
+
+        trades_queue
+    }
+
+    pub fn lazy_propagate(&mut self, from: &H160) -> HashMap<H160, Vec<H160>> {
+        let mut paths_by_pair = HashMap::<H160, Vec<H160>>::new();
+        for pools in self.pools_by_token.get(from) {
+            for (addr, is0) in pools {
+                if let Some(pool) = self.pools.get(&addr) {
+                    if let Some(other) = pool.get_tokens().into_iter().find(|z| z != addr) {
+                        paths_by_pair.entry(*from).or_insert(Vec::new()).push(other);
+                    }
+                }
+            }
+        }
+
+        paths_by_pair
     }
 }

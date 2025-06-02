@@ -38,15 +38,12 @@ pub struct Supervisor {
 impl Supervisor {
     pub async fn new(chain_data: ChainData, chain_settings: ChainSettings) -> Self {
         let _chain_data = chain_data.clone();
-        let arc_ws_provider = Arc::new(_chain_data.ws_providers);
-        let arc_http_provider = Arc::new(_chain_data.http_providers);
-        let arc_abi_provider = Arc::new(_chain_data.abis);
 
-        let svc = ChainDataService { ws_providers: arc_ws_provider };
+        let svc = ChainDataService { ws_providers: _chain_data.ws_providers.clone() };
 
         let src = ChainSrc::new(
-            arc_abi_provider,
-            arc_http_provider,
+            _chain_data.abis.clone(),
+            _chain_data.http_providers,
             &chain_settings.tokens,
             &chain_settings.factories, // chain_data.tokens_list,
         )
@@ -54,63 +51,116 @@ impl Supervisor {
 
         let abt = Arbitro::new(MappedVec::from_array(src.create_sim().await));
         let sim: Simulacrum = Simulacrum::new(abt);
+        println!("creating supervisor");
         Self { chain_data, chain_settings, block_service: svc, simulacrum: sim, chain_src: src }
     }
+ pub async fn start(mut self) {
+        println!("▶ start: Supervisor.entered start()");
 
-    async fn start(mut self) {
-        // Convert token addresses to H160
+        // 1. Convert token addresses to H160
+        println!("  • Converting token address strings to H160...");
         let addresses: Vec<H160> = self
             .chain_settings
             .tokens
             .iter()
-            .map(|t| H160::from_str(&t.address))
-            .collect::<Result<Vec<_>, _>>()
+            .map(|t| {
+                println!("    – parsing token {}", t.address);
+                H160::from_str(&t.address)
+            })
+            .collect::<Result<_, _>>()
             .expect("Invalid token address format");
+        println!("  ✓ Converted {} token addresses to H160", addresses.len());
 
-        // Create proper filter
-        let filter =
-            Filter::new().from_block(BlockNumber::Latest).address(ValueOrArray::Array(addresses));
+        // 2. Create proper filter for logs
+        println!("  • Building Filter from_block=Latest, addresses={:?}", addresses);
+        let filter = Filter::new()
+            .from_block(BlockNumber::Latest)
+            .address(ValueOrArray::Array(addresses.clone()));
+        println!("  ✓ Log filter created: {:?}", filter);
 
-        // Spawn the log subscriber
+        // 3. Spawn the log subscriber
+        println!("  • Spawning log subscriber...");
         let mut log_rx = self.block_service.spawn_log_subscriber(filter);
+        println!("  ✓ Log subscriber spawned");
+
+        // 4. Spawn the mempool subscriber
+        println!("  • Spawning mempool subscriber...");
         let mut mempool_rx = self.block_service.spawn_mempool_subscriber();
+        println!("  ✓ Mempool subscriber spawned");
 
+        // 5. Wrap simulacrum in an Arc<Mutex<…>> for shared state
+        println!("  • Wrapping simulacrum in Arc<Mutex>...");
         let shared_arbitro = Arc::new(Mutex::new(self.simulacrum));
-        let _shared_arbitro = shared_arbitro.clone();
-        tokio::spawn(async move {
-            while let Some(mem_pool) = mempool_rx.recv().await {
-                let d = Decoder::decode_tx_static(&self.chain_data.abis, &mem_pool);
-                let r = Decoder::decode_tx_to_action(d);
-            }
-        });
+        let shared_arbitro_for_mempool = shared_arbitro.clone();
+        println!("  ✓ Simulacrum wrapped (Arc<Mutex>)");
 
+        // 6. Spawn a task to handle mempool events
+        println!("  • Spawning tokio task for handling mempool events...");
+        tokio::spawn(async move {
+            println!("    ▶ mempool task: started");
+            while let Some(mem_pool) = mempool_rx.recv().await {
+                println!("      • mempool task: received raw tx = {:?}", mem_pool.block_hash);
+                let decoded = Decoder::decode_tx_static(&self.chain_data.abis, &mem_pool);
+                println!("      • mempool task: decoded tx data = {:?}", decoded);
+
+                if let Some(action) = Decoder::decode_tx_to_action(decoded) {
+                    println!("      • mempool task: parsed action = {:?}", action);
+                    if let Some(to_addr) = mem_pool.to {
+                        println!(
+                            "      • mempool task: calling update_phantom_state(to = {:?})",
+                            to_addr
+                        );
+                        shared_arbitro_for_mempool
+                            .lock()
+                            .await
+                            .update_phanton_state(&to_addr, action);
+                        println!("      ✓ mempool task: update_phantom_state done");
+                    } else {
+                        println!("      ! mempool task: tx.to is None, skipping update");
+                    }
+                } else {
+                    println!("      ! mempool task: no PoolAction found, skipping");
+                }
+            }
+            println!("    ◀ mempool task: ended (channel closed)");
+        });
+        println!("  ✓ Mempool handler task spawned");
+
+        // 7. Enter the main log loop
+        println!("  • Entering main loop to process log events…");
         while let Some(log) = log_rx.recv().await {
+            println!("    • main loop: received log = {:?}", log);
+
             if let Some((action, addr)) = PoolAction::parse_pool_action(&log) {
-                shared_arbitro.lock().await.origin_mut().update_state(&addr, action);
+                println!(
+                    "    • main loop: parsed PoolAction = {:?}, pool address = {:?}",
+                    action, addr
+                );
+                shared_arbitro
+                    .lock()
+                    .await
+                    .update_main_state(&addr, action);
+                println!("    ✓ main loop: update_main_state done");
+            } else {
+                println!("    ! main loop: log did not match any PoolAction, skipping");
             }
         }
+        println!("  ◀ main loop: log channel closed, exiting start()");
     }
 
-    pub fn process_mempool() {
-        // duplicate arbitro and update state of one pool in the new arbitro
-        // maybe a new struc that manages multiple arbitros and the specific modifications
-        // mempool operations can fail so multiple possibilities
-        // pools - modifications -
-        // H160  - [{block, provider, trade}]
-    }
 }
 
 #[derive(Clone)]
 pub struct ChainData {
-    id: u32,
-    name: String,
-    abis: AbisData,
-    ws_providers: Vec<Provider<Ws>>,
-    http_providers: Provider<MultiProvider>,
+    pub id: u32,
+    pub name: String,
+    pub abis: Arc<AbisData>,
+    pub ws_providers: Arc<Vec<Provider<Ws>>>,
+    pub http_providers: Arc<Provider<MultiProvider>>,
 }
 
 #[derive(Clone)]
 pub struct ChainSettings {
-    tokens: Vec<TokenModel>,
-    factories: Vec<DexModel>,
+    pub tokens: Vec<TokenModel>,
+    pub factories: Vec<DexModel>,
 }

@@ -20,7 +20,7 @@ impl BlockChainsModel {
 }
 #[derive(Clone, Serialize, Deserialize,)]
 pub struct ChainDataModel {
-    pub id: u8,
+    pub id: u32,
     pub name: String,
     pub dexes: Vec<DexModel,>,
     pub tokens: Vec<TokenModel,>,

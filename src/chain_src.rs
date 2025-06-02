@@ -61,9 +61,10 @@ impl ChainSrc {
         _dexes: &Vec<DexModel,>,
     ) -> Self {
         println!("Creating ChainSrc");
-
+        /* tokens will be add one by one
+        the time it takes to create all pools we lost events
         let tokens = {
-            let mut tokens = Vec::new();
+            let mut tokens: Vec<(H160, Arc<RwLock<Token>>)> = Vec::new();
             for t in tokens_list {
                 let add = H160::from_str(&t.address,).unwrap();
                 let token = Token::new(
@@ -78,7 +79,7 @@ impl ChainSrc {
             }
             tokens
         };
-
+        */
         let mut factories = {
             let mut _factories = Vec::new();
             for d in _dexes {
@@ -106,13 +107,14 @@ impl ChainSrc {
         let mut src = ChainSrc {
             provider,
             pools: MappedVec::new(),
-            tokens: MappedVec::from_array(tokens,),
+            tokens: MappedVec::new(), //MappedVec::from_array(tokens,),
             factories: MappedVec::from_array(factories,),
             abis,
         };
 
+        /* nope
         src.search_all_pools().await.unwrap();
-
+        */
         src
     }
 
