@@ -13,7 +13,6 @@ use crate::{
 pub struct Arbitro {
     pub pools: MappedVec<AnyPoolSim>,
     pub pools_by_token: HashMap<H160, Vec<(H160, bool)>>,
-    pub tokens_by_pool: HashMap<H160, Vec<(H160, H160)>>,
 }
 
 impl Arbitro {
@@ -35,7 +34,7 @@ impl Arbitro {
             tokens_by_pool.insert(*pool_addr, vec![(tokens[0], tokens[1])]);
         }
 
-        Self { pools, pools_by_token, tokens_by_pool }
+        Self { pools, pools_by_token }
     }
 
     pub fn update_state(&mut self, addr: &H160, action: PoolAction) {
@@ -111,7 +110,9 @@ impl Arbitro {
         }
     }
 
-    pub fn evaluate_hop(&mut self, from: &H160, pools: Vec<H160>, phanton: Vec<H160>,amount: U256) -> BinaryHeap<Trade> {
+    pub fn evaluate_hop(
+        &mut self, from: &H160, pools: Vec<H160>, phanton: Vec<H160>, amount: U256,
+    ) -> BinaryHeap<Trade> {
         let mut trades_queue = BinaryHeap::<Trade>::new();
         for pool_addr in pools {
             if let Some(pool) = self.pools.get_mut(&pool_addr) {
@@ -138,5 +139,36 @@ impl Arbitro {
         }
 
         paths_by_pair
+    }
+
+    pub fn add_token(&mut self, token_addr: H160) {
+        self.pools_by_token.entry(token_addr).or_insert_with(Vec::new);
+    }
+
+    /// 2) Register a newly discovered pool‐simulation at runtime.
+    ///
+    ///    - `pool_addr`: the on‐chain address of the pool
+    ///    - `pool_sim`: the `AnyPoolSim` (simulation object) for that pool
+    ///
+    ///    This method:
+    ///      • Inserts (`pool_addr` ↦ `pool_sim`) into `self.pools`.
+    ///      • Extracts `(token0, token1) = pool_sim.get_tokens()`.
+    ///      • Updates both `pools_by_token[token0]` and `pools_by_token[token1]`
+    ///        with `(pool_addr, is_0)`.
+    ///      • Updates `tokens_by_pool[pool_addr] = (token0, token1)`.
+    pub fn add_pool(&mut self, pools_sim: AnyPoolSim) {
+        // 1) Insert into `self.pools`
+
+            // 2) Figure out the two tokens in this pool:
+            let tokens = pools_sim.get_tokens();
+            let token0: H160 = tokens[0];
+            let token1 = tokens[1];
+
+            // 4) Update pools_by_token[token0] with (pool_addr, is_0 = true)
+            self.pools_by_token.entry(token0).or_insert_with(Vec::new).push((pools_sim.get_address(), true));
+
+            // 5) Update pools_by_token[token1] with (pool_addr, is_0 = false)
+            self.pools_by_token.entry(token1).or_insert_with(Vec::new).push((pools_sim.get_address(), false));
+        
     }
 }

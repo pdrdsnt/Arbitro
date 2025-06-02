@@ -9,6 +9,7 @@ mod decoder;
 mod err;
 mod factory;
 mod mapped_vec;
+mod ws_manager;
 mod mem_pool;
 mod mult_provider;
 mod pair;

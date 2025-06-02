@@ -20,4 +20,5 @@ ethers-providers = "2.0.14"
 async-trait = "0.1.88"
 tokio-stream = "0.1.17"
 anyhow = "1.0.98"
+uuid = {version = "1.17.0", features = ["v4"] }
 

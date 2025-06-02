@@ -9,14 +9,14 @@ use ethers::{
 };
 use ethers_providers::{Provider, Ws};
 use futures::io::Seek;
-use tokio::sync::Mutex;
+use tokio::{sync::Mutex, task::JoinHandle};
 
 use crate::{
     arbitro::Arbitro,
-    decoder::Decoder,
     blockchain_db::{DexModel, TokenModel},
     chain_src::ChainSrc,
     chain_svc::ChainDataService,
+    decoder::Decoder,
     factory::AnyFactory,
     mapped_vec::MappedVec,
     mem_pool,
@@ -54,7 +54,8 @@ impl Supervisor {
         println!("creating supervisor");
         Self { chain_data, chain_settings, block_service: svc, simulacrum: sim, chain_src: src }
     }
- pub async fn start(mut self) {
+
+    pub async fn start(mut self) {
         println!("▶ start: Supervisor.entered start()");
 
         // 1. Convert token addresses to H160
@@ -90,17 +91,64 @@ impl Supervisor {
 
         // 5. Wrap simulacrum in an Arc<Mutex<…>> for shared state
         println!("  • Wrapping simulacrum in Arc<Mutex>...");
-        let shared_arbitro = Arc::new(Mutex::new(self.simulacrum));
-        let shared_arbitro_for_mempool = shared_arbitro.clone();
+        let shared_sim = Arc::new(Mutex::new(self.simulacrum));
+        let shared_sim_for_mempool = shared_sim.clone();
+
+
+        let shared_svc = Arc::new(Mutex::new(self.block_service));
+
         println!("  ✓ Simulacrum wrapped (Arc<Mutex>)");
 
-        // 6. Spawn a task to handle mempool events
+        Self::spawn_mempool_handler(
+            mempool_rx,
+            shared_sim_for_mempool,
+            self.chain_data.abis.clone(),
+        );
+        println!("  ✓ Mempool handler task spawned");
+
+        // 7. Enter the main log loop
+        println!("  • Entering main loop to process log events…");
+        while let Some(log) = log_rx.recv().await {
+            println!("    • main loop: received log = {:?}", log);
+            for t in &self.chain_settings.tokens {
+                if let Ok((new_token, new_pools)) = self.chain_src.add_token(t.clone()).await {
+                    for p in new_pools {
+                        //everything happens here, update them imediatly subscribe and freeze to pass to simulation
+                        
+                        let mut pool = p.pool.write().await;
+                        pool.update().await;
+                        //shared_svc.lock().await.subscripe_to_pool(pool.get_address()); 
+                        let snapshot = p.pool.read().await.into_sim().await;
+                        shared_sim.lock().await.add_pool(snapshot);
+                    }
+                }
+            }
+            if let Some((action, addr)) = PoolAction::parse_pool_action(&log) {
+                println!(
+                    "    • main loop: parsed PoolAction = {:?}, pool address = {:?}",
+                    action, addr
+                );
+                shared_sim.lock().await.update_main_state(&addr, action);
+                println!("    ✓ main loop: update_main_state done");
+            } else {
+                println!("    ! main loop: log did not match any PoolAction, skipping");
+            }
+        }
+        println!("  ◀ main loop: log channel closed, exiting start()");
+    }
+
+    pub async fn spawn_mempool_handler(
+        mut mempool_rx: tokio::sync::mpsc::UnboundedReceiver<Transaction>,
+        shared_sim_for_mempool: Arc<Mutex<Simulacrum>>, abis_data: Arc<AbisData>,
+    ) -> JoinHandle<()> {
         println!("  • Spawning tokio task for handling mempool events...");
+
         tokio::spawn(async move {
             println!("    ▶ mempool task: started");
             while let Some(mem_pool) = mempool_rx.recv().await {
                 println!("      • mempool task: received raw tx = {:?}", mem_pool.block_hash);
-                let decoded = Decoder::decode_tx_static(&self.chain_data.abis, &mem_pool);
+
+                let decoded = Decoder::decode_tx_static(&abis_data, &mem_pool);
                 println!("      • mempool task: decoded tx data = {:?}", decoded);
 
                 if let Some(action) = Decoder::decode_tx_to_action(decoded) {
@@ -110,7 +158,7 @@ impl Supervisor {
                             "      • mempool task: calling update_phantom_state(to = {:?})",
                             to_addr
                         );
-                        shared_arbitro_for_mempool
+                        shared_sim_for_mempool
                             .lock()
                             .await
                             .update_phanton_state(&to_addr, action);
@@ -123,31 +171,8 @@ impl Supervisor {
                 }
             }
             println!("    ◀ mempool task: ended (channel closed)");
-        });
-        println!("  ✓ Mempool handler task spawned");
-
-        // 7. Enter the main log loop
-        println!("  • Entering main loop to process log events…");
-        while let Some(log) = log_rx.recv().await {
-            println!("    • main loop: received log = {:?}", log);
-
-            if let Some((action, addr)) = PoolAction::parse_pool_action(&log) {
-                println!(
-                    "    • main loop: parsed PoolAction = {:?}, pool address = {:?}",
-                    action, addr
-                );
-                shared_arbitro
-                    .lock()
-                    .await
-                    .update_main_state(&addr, action);
-                println!("    ✓ main loop: update_main_state done");
-            } else {
-                println!("    ! main loop: log did not match any PoolAction, skipping");
-            }
-        }
-        println!("  ◀ main loop: log channel closed, exiting start()");
+        })
     }
-
 }
 
 #[derive(Clone)]

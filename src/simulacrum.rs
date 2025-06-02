@@ -3,7 +3,7 @@ use std::{collections::HashMap, hash::Hash, rc::Rc, str::FromStr};
 use ethers::{core::k256::U256, types::H160};
 use ethers_providers::{Provider, Ws};
 
-use crate::{arbitro::{self, Arbitro}, pool_action::PoolAction, trade::Trade, v_pool_sim::AnyPoolSim};
+use crate::{arbitro::{self, Arbitro}, pool_action::PoolAction, token::Token, trade::Trade, v_pool_sim::AnyPoolSim};
 
 pub struct Simulacrum
 {
@@ -12,7 +12,6 @@ pub struct Simulacrum
     anchor_nodes: Vec<H160>,
     stored_trades: HashMap<H160,Vec<Trade>>,
     stored_anchor_trades: HashMap<H160,Vec<Trade>>
-
 }
 
 impl Simulacrum
@@ -35,7 +34,6 @@ impl Simulacrum
         if let Some(pool_fork) = self.get(addr) {
             print!("lalalala");
         }
-        
     }
 
     pub fn update_main_state(&mut self, addr: &H160, action: PoolAction){
@@ -48,6 +46,11 @@ impl Simulacrum
     pub fn get(&self, key: &H160) -> Option<&Vec<PhantonState>> { 
         self.state_tracker.get(key)
     }
+
+    pub fn add_pool(&mut self, pools: AnyPoolSim){
+        &mut self.origin.add_pool(pools);
+    }
+    
 
 }
 
