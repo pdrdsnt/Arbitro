@@ -313,49 +313,87 @@ impl ChainSrc {
 
     pub async fn add_token(
         &mut self, _new_token: TokenModel,
-    ) -> Result<(Arc<RwLock<Token>>,Vec<DiscoveredPool>), PoolUpdateError> {
-        // 1) Snapshot all “existing” tokens before we insert the new one.
+    ) -> Result<(Arc<RwLock<Token>>, Vec<DiscoveredPool>), PoolUpdateError> {
+        println!("[add_token] Starting to add new token: {:?}", _new_token.symbol);
+
+        // 1) Snapshot all "existing" tokens before we insert the new one.
+        println!("[add_token] Checking existing tokens...");
         let mut existing_tokens: Vec<Arc<RwLock<Token>>> = Vec::new();
         for tok_arc in self.tokens.values() {
-            if tok_arc.read().await.address == H160::from_str(&_new_token.address).unwrap() {return Err(PoolUpdateError::Custom("Token Already exist".to_string()));}
+            let token_read = tok_arc.read().await;
+            println!(
+                "[add_token] Checking existing token: {} ({})",
+                token_read.symbol, token_read.address
+            );
+
+            if token_read.address == H160::from_str(&_new_token.address).unwrap() {
+                println!(
+                    "[add_token] ❌ Token already exists: {} ({})",
+                    token_read.symbol, token_read.address
+                );
+                return Err(PoolUpdateError::Custom("Token Already exist".to_string()));
+            }
             existing_tokens.push(tok_arc.clone());
-            
         }
+        println!("[add_token] ✅ Token is new, proceeding with addition");
+
         let mut new_token = Arc::new(RwLock::new(Token {
-            name: _new_token.name,
+            name: _new_token.name.clone(),
             address: H160::from_str(&_new_token.address).unwrap(),
-            symbol: _new_token.symbol,
-            decimals: _new_token.decimals,
+            symbol: _new_token.symbol.clone(),
+            decimals: _new_token.decimals.clone(),
             contract: ContractInstance::new(
                 H160::from_str(&_new_token.address).unwrap(),
                 self.abis.bep_20.clone(),
                 self.provider.clone(),
             ),
         }));
+
         // 2) Insert the new token into self.tokens
         let new_addr = new_token.read().await.address;
+        println!(
+            "[add_token] Adding new token to tokens map: {} ({})",
+            _new_token.symbol, new_addr
+        );
         self.tokens.insert(new_addr, new_token.clone());
-        let mut d = vec![];
+
+        let mut d: Vec<DiscoveredPool> = vec![];
+        println!("[add_token] Found {} existing tokens to check for pairs", existing_tokens.len());
+
         // 3) For each old token, search for pools between (old, new)
-        for other_tok in existing_tokens {
+        for (i, other_tok) in existing_tokens.iter().enumerate() {
             let other_addr = other_tok.read().await.address;
+            println!(
+                "[add_token] [{}/{}] Searching pools between new token and {} ({})",
+                i + 1,
+                existing_tokens.len(),
+                other_tok.read().await.symbol,
+                other_addr
+            );
 
             // We use (old_addr, new_addr) so that we match how `generate_unique_pairs`
-            // always put the “smaller‐index” token first. If your factory RPC doesn’t
+            // always put the "smaller‐index" token first. If your factory RPC doesn't
             // care about argument order, you could do (new_addr, other_addr) as well.
             let discovered: Vec<DiscoveredPool> = self.search_pools(&other_addr, &new_addr).await;
+            println!("[add_token] Found {} pools for this pair", discovered.len());
 
-            for p in discovered {
+            for (j, p) in discovered.into_iter().enumerate() {
                 let pool_addr = p.address;
-                // Only insert if we don’t already have it
+                println!("[add_token]   [{}.{}] Processing pool: {}", i + 1, j + 1, pool_addr);
+
+                // Only insert if we don't already have it
                 if self.pools.get(&pool_addr).is_none() {
+                    println!("[add_token]   [{}.{}] Adding new pool to pools map", i + 1, j + 1);
                     self.pools.insert(pool_addr, p.pool.clone());
+                } else {
+                    println!("[add_token]   [{}.{}] Pool already exists, skipping", i + 1, j + 1);
                 }
 
                 d.push(p);
             }
         }
 
+        println!("[add_token] ✅ Successfully added token and found {} pools", d.len());
         Ok((new_token.clone(), d))
     }
 

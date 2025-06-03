@@ -79,48 +79,91 @@ impl Supervisor {
             .address(ValueOrArray::Array(addresses.clone()));
         println!("  ✓ Log filter created: {:?}", filter);
 
-        // 3. Spawn the log subscriber
-        println!("  • Spawning log subscriber...");
-        let mut log_rx = self.block_service.spawn_log_subscriber().await;
-        println!("  ✓ Log subscriber spawned");
-
-        // 4. Spawn the mempool subscriber
-        println!("  • Spawning mempool subscriber...");
-        let mut mempool_rx = self.block_service.spawn_mempool_subscriber();
-        println!("  ✓ Mempool subscriber spawned");
-
+      
         // 5. Wrap simulacrum in an Arc<Mutex<…>> for shared state
         println!("  • Wrapping simulacrum in Arc<Mutex>...");
         let shared_sim = Arc::new(Mutex::new(self.simulacrum));
         let shared_sim_for_mempool = shared_sim.clone();
 
-        let shared_svc = Arc::new(Mutex::new(self.block_service));
+        /*
+        // 4. Spawn the mempool subscriber
+        println!("  • Spawning mempool subscriber...");
+        let mut mempool_rx = self.block_service.spawn_mempool_subscriber();
+        println!("  ✓ Mempool subscriber spawned");
+        */
 
-        println!("  ✓ Simulacrum wrapped (Arc<Mutex>)");
-
+        /*
         Self::spawn_mempool_handler(
             mempool_rx,
             shared_sim_for_mempool,
             self.chain_data.abis.clone(),
         );
         println!("  ✓ Mempool handler task spawned");
+        */
+        // 3. Spawn the log subscriber
+        println!("  • Spawning log subscriber...");
+        let mut log_rx = self.block_service.spawn_log_subscriber().await;
+        println!("  ✓ Log subscriber spawned");
+
+        let shared_svc = Arc::new(Mutex::new(self.block_service));
 
         // 7. Enter the main log loop
         println!("  • Entering main loop to process log events…");
+
         while let Some(log) = log_rx.recv().await {
             println!("    • main loop: received log = {:?}", log);
+
             for t in &self.chain_settings.tokens {
+                println!("      - Checking token: {:?}", t.symbol);
+
                 if let Ok((new_token, new_pools)) = self.chain_src.add_token(t.clone()).await {
-                    for p in new_pools {
-                        // update them imediatly subscribe and freeze to pass to simulation
+                    println!("        ✓ Successfully added token: {:?}", new_token);
+                    println!("        • Found {} pools for this token", new_pools.len());
+
+                    for (i, p) in new_pools.iter().enumerate() {
+                        println!(
+                            "          [Pool {}/{}] Processing pool: {:?}",
+                            i + 1,
+                            new_pools.len(),
+                            p.address
+                        );
+
+                        // update them immediately subscribe and freeze to pass to simulation
                         let mut pool = p.pool.write().await;
+                        println!(
+                            "          [Pool {}/{}] Updating pool state...",
+                            i + 1,
+                            new_pools.len()
+                        );
                         pool.update().await;
-                        shared_svc.lock().await.add_pool(pool.get_address());
+
+                        let pool_address = pool.get_address();
+                        println!(
+                            "          [Pool {}/{}] Adding pool to shared service: {}",
+                            i + 1,
+                            new_pools.len(),
+                            pool_address
+                        );
+                        shared_svc.lock().await.add_pool(pool_address);
+
+                        println!(
+                            "          [Pool {}/{}] Creating pool snapshot for simulation",
+                            i + 1,
+                            new_pools.len()
+                        );
                         let snapshot = p.pool.read().await.into_sim().await;
                         shared_sim.lock().await.add_pool(snapshot);
+                        println!(
+                            "          [Pool {}/{}] Successfully added to simulation",
+                            i + 1,
+                            new_pools.len()
+                        );
                     }
+                } else {
+                    println!("        ! Failed to add token: {:?}", t.symbol);
                 }
             }
+
             if let Some((action, addr)) = PoolAction::parse_pool_action(&log) {
                 println!(
                     "    • main loop: parsed PoolAction = {:?}, pool address = {:?}",
@@ -144,10 +187,10 @@ impl Supervisor {
         tokio::spawn(async move {
             println!("    ▶ mempool task: started");
             while let Some(mem_pool) = mempool_rx.recv().await {
-                println!("      • mempool task: received raw tx = {:?}", mem_pool.block_hash);
+               // println!("      • mempool task: received raw tx = {:?}", mem_pool.block_hash);
 
                 let decoded = Decoder::decode_tx_static(&abis_data, &mem_pool);
-                println!("      • mempool task: decoded tx data = {:?}", decoded);
+               // println!("      • mempool task: decoded tx data = {:?}", decoded);
 
                 if let Some(action) = Decoder::decode_tx_to_action(decoded) {
                     println!("      • mempool task: parsed action = {:?}", action);
