@@ -15,74 +15,52 @@ use uuid::Uuid;
 pub struct Subscription {
     pub receiver_id: Uuid,
     pub handle: JoinHandle<()>,
-    pub tracking: HashSet<H160>,
 }
 
-pub struct SharedThing {
-    subscriptions: Vec<Subscription>
+pub enum Control<T: Send + 'static> {
+    Add(UnboundedReceiver<T>),
+    Rmv(Uuid),
+}
+pub struct WsManager<T: Send + 'static> {
+    pub sub_tx: UnboundedSender<Control<T>>,
+    pub funnel_rx: UnboundedReceiver<T>
 }
 
-pub struct WsManager {
-    subscriptions: Arc<Mutex<Vec<Subscription>>>,
-    new_sub_rx: Mutex<Option<UnboundedReceiver<UnboundedReceiver<Log>>>>,
-    new_sub_tx: UnboundedSender<UnboundedReceiver<Log>>,
-    pub funnel_rx: UnboundedReceiver<Log>,
-    funnel_tx: UnboundedSender<Log>,
-}
+impl<T: Send + 'static> WsManager<T> {
 
-impl WsManager {
-    pub fn new() -> Self {
-        let (new_sub_tx, new_sub_rx) = unbounded_channel();
-        let (funnel_tx, funnel_rx) = unbounded_channel();
-        WsManager {
-            subscriptions: Arc::new(Mutex::new(Vec::new())),
-            new_sub_rx: Mutex::new(Some(new_sub_rx)),
-            new_sub_tx,
-            funnel_rx,
-            funnel_tx,
-        }
-    }
+    pub async fn start() -> Self{
+        let mut subscriptions = Vec::<Subscription>::new();
+        let (new_sub_tx, new_sub_rx) = unbounded_channel::<Control<T>>();
+        let (funnel_tx, funnel_rx) = unbounded_channel::<T>();
 
-    pub async fn start(&self) {
-        let mut new_sub_rx = {
-            let mut guard = self.new_sub_rx.lock().await;
-            guard.take().expect("start called twice")
-        };
-        let mut funnel_tx = self.funnel_tx.clone();
-        let mut select_all = SelectAll::default();
-
+        let mut funnel_tx = funnel_tx;
+       
         tokio::spawn(async move {
+            let mut new_sub_receiver = new_sub_rx;
             loop {
-                tokio::select! {
-                    Some(item) = merged.next() => {
-                        let _ = funnel_tx.send(item);
-                    }
-                    Some(new_rx) = new_sub_rx.recv() => {
-                        let stream = UnboundedReceiverStream::new(new_rx);
-                        merged.push(stream);
-                    }
-                    else => break,
+                if let Some(v) = new_sub_receiver.recv().await {
+                    
                 }
             }
         });
+
+        WsManager { sub_tx: new_sub_tx, funnel_rx: funnel_rx }
     }
 
     pub async fn add_subscription(
-        &self, receiver: UnboundedReceiver<Log>, handle: JoinHandle<()>, tracking: HashSet<H160>,
+        &self, receiver: UnboundedReceiver<T>, handle: JoinHandle<()>,
     ) {
-        let mut subs = self.subscriptions.lock().await;
-        subs.push(Subscription { receiver_id: uuid::Uuid::new_v4(), handle, tracking });
-        drop(subs);
         let _ = self.new_sub_tx.send(receiver);
     }
 
-    pub async fn remove_subscription(&self, pool: &H160) {
+    pub async fn remove_subscription(&self, id: Uuid) {
         let mut subs = self.subscriptions.lock().await;
         let mut i = 0;
         while i < subs.len() {
-            if subs[i].tracking.contains(pool) {
+            if subs[i].receiver_id == id {
                 subs[i].handle.abort();
                 subs.remove(i);
+                break;
             } else {
                 i += 1;
             }
