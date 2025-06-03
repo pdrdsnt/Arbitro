@@ -81,7 +81,7 @@ impl Supervisor {
 
         // 3. Spawn the log subscriber
         println!("  • Spawning log subscriber...");
-        let mut log_rx = self.block_service.spawn_log_subscriber(filter);
+        let mut log_rx = self.block_service.spawn_log_subscriber().await;
         println!("  ✓ Log subscriber spawned");
 
         // 4. Spawn the mempool subscriber
@@ -93,7 +93,6 @@ impl Supervisor {
         println!("  • Wrapping simulacrum in Arc<Mutex>...");
         let shared_sim = Arc::new(Mutex::new(self.simulacrum));
         let shared_sim_for_mempool = shared_sim.clone();
-
 
         let shared_svc = Arc::new(Mutex::new(self.block_service));
 
@@ -114,10 +113,9 @@ impl Supervisor {
                 if let Ok((new_token, new_pools)) = self.chain_src.add_token(t.clone()).await {
                     for p in new_pools {
                         // update them imediatly subscribe and freeze to pass to simulation
-                        
                         let mut pool = p.pool.write().await;
                         pool.update().await;
-                        //shared_svc.lock().await.subscripe_to_pool(pool.get_address()); 
+                        shared_svc.lock().await.add_pool(pool.get_address());
                         let snapshot = p.pool.read().await.into_sim().await;
                         shared_sim.lock().await.add_pool(snapshot);
                     }
@@ -158,10 +156,7 @@ impl Supervisor {
                             "      • mempool task: calling update_phantom_state(to = {:?})",
                             to_addr
                         );
-                        shared_sim_for_mempool
-                            .lock()
-                            .await
-                            .update_phanton_state(&to_addr, action);
+                        shared_sim_for_mempool.lock().await.update_phanton_state(&to_addr, action);
                         println!("      ✓ mempool task: update_phantom_state done");
                     } else {
                         println!("      ! mempool task: tx.to is None, skipping update");

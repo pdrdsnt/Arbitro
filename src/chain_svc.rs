@@ -1,7 +1,10 @@
 use std::{collections::HashSet, sync::Arc};
 
 use ethers::{abi::Hash, prelude::*};
-use futures::stream::{SelectAll, StreamExt};
+use futures::{
+    future::join_all,
+    stream::{SelectAll, StreamExt},
+};
 use tokio::{
     sync::mpsc::{unbounded_channel, UnboundedReceiver, UnboundedSender},
     task::JoinHandle,
@@ -29,7 +32,7 @@ impl ChainDataService {
     ) -> anyhow::Result<Self> {
         println!("start service");
 
-        let ws_manager = WsManager { sub_tx: None, funnel_rx: None };
+        let ws_manager = WsManager { sub_tx: None };
         let mut svc: ChainDataService = Self { ws_providers, ws_manager, monitoring: Vec::new() };
 
         Ok(svc)
@@ -62,7 +65,6 @@ impl ChainDataService {
 
         let (log_tx, log_rx) = unbounded_channel();
         let providers = self.ws_providers.clone();
-        let m = self.ws_manager.funnel_rx.as_ref().unwrap();
         let j = tokio::spawn(async move {
             let mut merged = SelectAll::new();
             for ws in &*providers {
@@ -78,54 +80,47 @@ impl ChainDataService {
         (j, log_rx)
     }
 
-    pub fn spawn_log_subscriber(&self, filter: Filter) -> UnboundedReceiver<Log> {
-        let (log_tx, log_rx) = unbounded_channel();
-        let providers = self.ws_providers.clone();
-        let m = self.ws_manager.funnel_rx.as_ref().unwrap();
-        tokio::spawn(async move {
-            let mut merged = SelectAll::new();
-            for ws in &*providers {
-                if let Ok(stream) = ws.subscribe_logs(&filter).await {
-                    merged.push(stream);
-                }
-            }
-            while let Some(header) = merged.next().await {
-                let _ = log_tx.send(header);
-            }
-        });
-
-        log_rx
+    pub async fn spawn_log_subscriber(&mut self) -> UnboundedReceiver<Log> {
+        
+        let (man, rx) = WsManager::<Log>::start().await;
+        self.ws_manager = man;
+        rx
+        
     }
 
     pub fn add_pool(&mut self, pool: H160) {
-        self.monitoring.push(Chunk {
+        let new_chunk = Chunk {
             addrs: HashSet::<H160>::from_iter([pool.clone()]),
             tombstones: HashSet::new(),
             id: uuid::Uuid::new_v4(),
-        });
+        };
 
-        self.ws_manager.add_subscription(todo!(), todo!());
+        let (h, r) = self.spawn_log_subsubscriber(&new_chunk);
+        self.ws_manager.add_subscription(r, h);
+
+        self.check();
     }
 
-    pub fn check(&mut self) {
+    pub async fn check(&mut self) {
         let len = self.monitoring.len();
         if len > 6 {
             let mut addr = HashSet::<H160>::new();
             let mut rmv = HashSet::<H160>::new();
-
+            let mut rmv_all = Vec::with_capacity(len);
             for chunk in self.monitoring.iter() {
                 addr.extend(&chunk.addrs);
                 rmv.extend(&chunk.tombstones);
-                self.ws_manager.remove_subscription(chunk.id);
+                rmv_all.push({ self.ws_manager.remove_subscription(chunk.id) });
             }
 
-            // Get elements in addr but not in rmv
             let final_addr: HashSet<H160> = addr.difference(&rmv).cloned().collect();
 
             let new_chunk =
                 Chunk { addrs: final_addr, tombstones: HashSet::new(), id: Uuid::new_v4() };
 
             self.spawn_log_subsubscriber(&new_chunk);
+            join_all(rmv_all);
+            self.monitoring.push(new_chunk);
         }
     }
 

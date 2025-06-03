@@ -23,11 +23,10 @@ pub enum Control<T: Send + 'static> {
 
 pub struct WsManager<T: Send + 'static> {
     pub sub_tx: Option<UnboundedSender<Control<T>>>,
-    pub funnel_rx: Option<UnboundedReceiver<T>>,
 }
 
 impl<T: Send + 'static> WsManager<T> {
-    pub async fn start() -> Self {
+    pub async fn start() -> (Self,UnboundedReceiver<T>) {
         let subscriptions = Arc::new(Mutex::new(Vec::<Subscription>::new()));
         let (new_sub_tx, mut new_sub_rx) = unbounded_channel::<Control<T>>();
         let (funnel_tx, funnel_rx) = unbounded_channel::<T>();
@@ -75,7 +74,7 @@ impl<T: Send + 'static> WsManager<T> {
             }
         });
 
-        WsManager { sub_tx: Some(new_sub_tx), funnel_rx: Some(funnel_rx) }
+        (WsManager { sub_tx: Some(new_sub_tx) }, funnel_rx)
     }
 
     pub async fn add_subscription(
