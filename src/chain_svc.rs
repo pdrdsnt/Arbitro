@@ -55,9 +55,7 @@ impl ChainDataService {
         block_rx
     }
 
-
-    fn spawn_log_subsubscriber(&self, chunk: &Chunk) -> (JoinHandle<()>,UnboundedReceiver<Log>) {
-        
+    fn spawn_log_subsubscriber(&self, chunk: &Chunk) -> (JoinHandle<()>, UnboundedReceiver<Log>) {
         let filter = Filter::new()
             .from_block(BlockNumber::Latest)
             .address(ValueOrArray::Array(chunk.addrs.clone().into_iter().collect()));
@@ -77,9 +75,8 @@ impl ChainDataService {
             }
         });
 
-        (j,log_rx)
+        (j, log_rx)
     }
-
 
     pub fn spawn_log_subscriber(&self, filter: Filter) -> UnboundedReceiver<Log> {
         let (log_tx, log_rx) = unbounded_channel();
@@ -114,17 +111,20 @@ impl ChainDataService {
         let len = self.monitoring.len();
         if len > 6 {
             let mut addr = HashSet::<H160>::new();
-            let mut rmv= HashSet::<H160>::new();
-            
+            let mut rmv = HashSet::<H160>::new();
+
             for chunk in self.monitoring.iter() {
-                addr.union(&chunk.addrs);
-                rmv.union(&chunk.tombstones);
+                addr.extend(&chunk.addrs);
+                rmv.extend(&chunk.tombstones);
                 self.ws_manager.remove_subscription(chunk.id);
             }
 
-            addr.difference(&rmv);
-            let new_chunk = Chunk { addrs: addr, tombstones: HashSet::new(), id: Uuid::new_v4() };
-            
+            // Get elements in addr but not in rmv
+            let final_addr: HashSet<H160> = addr.difference(&rmv).cloned().collect();
+
+            let new_chunk =
+                Chunk { addrs: final_addr, tombstones: HashSet::new(), id: Uuid::new_v4() };
+
             self.spawn_log_subsubscriber(&new_chunk);
         }
     }
