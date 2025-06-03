@@ -39,7 +39,7 @@ impl Supervisor {
     pub async fn new(chain_data: ChainData, chain_settings: ChainSettings) -> Self {
         let _chain_data = chain_data.clone();
 
-        let svc = ChainDataService { ws_providers: _chain_data.ws_providers.clone() };
+        let svc = ChainDataService::new(chain_data.ws_providers.clone(), vec![], 10).await.unwrap();
 
         let src = ChainSrc::new(
             _chain_data.abis.clone(),
