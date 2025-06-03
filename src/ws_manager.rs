@@ -50,7 +50,9 @@ impl<T: Send + 'static> WsManager<T> {
     pub async fn add_subscription(
         &self, receiver: UnboundedReceiver<T>, handle: JoinHandle<()>,
     ) {
-        let _ = self.new_sub_tx.send(receiver);
+        let sig = Control::Add(receiver);
+
+        let _ = self.sub_tx.send(sig);
     }
 
     pub async fn remove_subscription(&self, id: Uuid) {
