@@ -113,7 +113,7 @@ impl Supervisor {
             for t in &self.chain_settings.tokens {
                 if let Ok((new_token, new_pools)) = self.chain_src.add_token(t.clone()).await {
                     for p in new_pools {
-                        //everything happens here, update them imediatly subscribe and freeze to pass to simulation
+                        // update them imediatly subscribe and freeze to pass to simulation
                         
                         let mut pool = p.pool.write().await;
                         pool.update().await;

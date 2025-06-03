@@ -1,19 +1,25 @@
 use std::{collections::HashSet, sync::Arc};
+
 use ethers::types::{Log, H160};
-use futures::StreamExt;
+use futures::{stream::{SelectAll, FuturesUnordered}, StreamExt};
 use tokio::{
     sync::{
         mpsc::{unbounded_channel, UnboundedReceiver, UnboundedSender},
-        Mutex,
+        Mutex, RwLock,
     },
     task::JoinHandle,
 };
 use tokio_stream::{wrappers::UnboundedReceiverStream, StreamMap};
+use uuid::Uuid;
 
 pub struct Subscription {
-    pub receiver: UnboundedReceiver<Log>,
+    pub receiver_id: Uuid,
     pub handle: JoinHandle<()>,
     pub tracking: HashSet<H160>,
+}
+
+pub struct SharedThing {
+    subscriptions: Vec<Subscription>
 }
 
 pub struct WsManager {
@@ -43,28 +49,17 @@ impl WsManager {
             guard.take().expect("start called twice")
         };
         let mut funnel_tx = self.funnel_tx.clone();
-        let mut merged: StreamMap<uuid::Uuid, UnboundedReceiverStream<Log>> = StreamMap::new();
+        let mut select_all = SelectAll::default();
 
         tokio::spawn(async move {
             loop {
                 tokio::select! {
-                    Some((id, log)) = async {
-                        let mut next_fut = None;
-                        for (key, stream) in merged.iter_mut() {
-                            let mut s = stream.by_ref();
-                            if let Some(item) = s.next().await {
-                                next_fut = Some((key.clone(), item));
-                                break;
-                            }
-                        }
-                        next_fut
-                    } => {
-                        let _ = funnel_tx.send(log);
+                    Some(item) = merged.next() => {
+                        let _ = funnel_tx.send(item);
                     }
                     Some(new_rx) = new_sub_rx.recv() => {
-                        let id = uuid::Uuid::new_v4();
                         let stream = UnboundedReceiverStream::new(new_rx);
-                        merged.insert(id, stream);
+                        merged.push(stream);
                     }
                     else => break,
                 }
@@ -73,17 +68,10 @@ impl WsManager {
     }
 
     pub async fn add_subscription(
-        &self,
-        receiver: UnboundedReceiver<Log>,
-        handle: JoinHandle<()>,
-        tracking: HashSet<H160>,
+        &self, receiver: UnboundedReceiver<Log>, handle: JoinHandle<()>, tracking: HashSet<H160>,
     ) {
         let mut subs = self.subscriptions.lock().await;
-        subs.push(Subscription {
-            receiver: receiver.clone(),
-            handle,
-            tracking,
-        });
+        subs.push(Subscription { receiver_id: uuid::Uuid::new_v4(), handle, tracking });
         drop(subs);
         let _ = self.new_sub_tx.send(receiver);
     }
@@ -100,4 +88,8 @@ impl WsManager {
             }
         }
     }
+}
+
+pub struct Insider {
+    subscriptions: Arc<Mutex<Vec<Subscription>>>,
 }
