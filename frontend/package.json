@@ -1,0 +1,23 @@
+{
+  "name": "static",
+  "version": "1.0.0",
+  "description": "",
+  "main": "app.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1",
+    "build": "vite build",
+    "watch": "vite build --watch"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "type": "commonjs",
+  "dependencies": {
+    "@metamask/providers": "^22.1.1",
+    "ethers": "^6.15.0",
+    "viem": "^2.37.5"
+  },
+  "devDependencies": {
+    "vite": "^7.1.5"
+  }
+}

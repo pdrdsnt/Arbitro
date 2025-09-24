@@ -1,0 +1,12 @@
+/home/pdr/Arbitro/target/debug/deps/liballoy_serde-0780bcd45fd1ddbc.rmeta: /home/pdr/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/alloy-serde-1.0.31/src/lib.rs /home/pdr/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/alloy-serde-1.0.31/src/displayfromstr.rs /home/pdr/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/alloy-serde-1.0.31/src/optional.rs /home/pdr/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/alloy-serde-1.0.31/src/quantity.rs /home/pdr/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/alloy-serde-1.0.31/src/storage.rs /home/pdr/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/alloy-serde-1.0.31/src/ttd.rs /home/pdr/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/alloy-serde-1.0.31/src/other/mod.rs /home/pdr/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/alloy-serde-1.0.31/src/../README.md
+
+/home/pdr/Arbitro/target/debug/deps/alloy_serde-0780bcd45fd1ddbc.d: /home/pdr/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/alloy-serde-1.0.31/src/lib.rs /home/pdr/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/alloy-serde-1.0.31/src/displayfromstr.rs /home/pdr/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/alloy-serde-1.0.31/src/optional.rs /home/pdr/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/alloy-serde-1.0.31/src/quantity.rs /home/pdr/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/alloy-serde-1.0.31/src/storage.rs /home/pdr/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/alloy-serde-1.0.31/src/ttd.rs /home/pdr/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/alloy-serde-1.0.31/src/other/mod.rs /home/pdr/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/alloy-serde-1.0.31/src/../README.md
+
+/home/pdr/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/alloy-serde-1.0.31/src/lib.rs:
+/home/pdr/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/alloy-serde-1.0.31/src/displayfromstr.rs:
+/home/pdr/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/alloy-serde-1.0.31/src/optional.rs:
+/home/pdr/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/alloy-serde-1.0.31/src/quantity.rs:
+/home/pdr/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/alloy-serde-1.0.31/src/storage.rs:
+/home/pdr/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/alloy-serde-1.0.31/src/ttd.rs:
+/home/pdr/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/alloy-serde-1.0.31/src/other/mod.rs:
+/home/pdr/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/alloy-serde-1.0.31/src/../README.md:

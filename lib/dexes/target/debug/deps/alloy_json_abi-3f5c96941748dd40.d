@@ -1,0 +1,12 @@
+/home/pdr/capital/ethers/eth_discovery/target/debug/deps/liballoy_json_abi-3f5c96941748dd40.rmeta: /home/pdr/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/alloy-json-abi-1.3.1/src/lib.rs /home/pdr/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/alloy-json-abi-1.3.1/src/abi.rs /home/pdr/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/alloy-json-abi-1.3.1/src/item.rs /home/pdr/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/alloy-json-abi-1.3.1/src/param.rs /home/pdr/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/alloy-json-abi-1.3.1/src/internal_type.rs /home/pdr/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/alloy-json-abi-1.3.1/src/to_sol.rs /home/pdr/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/alloy-json-abi-1.3.1/src/utils.rs /home/pdr/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/alloy-json-abi-1.3.1/src/../README.md
+
+/home/pdr/capital/ethers/eth_discovery/target/debug/deps/alloy_json_abi-3f5c96941748dd40.d: /home/pdr/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/alloy-json-abi-1.3.1/src/lib.rs /home/pdr/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/alloy-json-abi-1.3.1/src/abi.rs /home/pdr/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/alloy-json-abi-1.3.1/src/item.rs /home/pdr/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/alloy-json-abi-1.3.1/src/param.rs /home/pdr/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/alloy-json-abi-1.3.1/src/internal_type.rs /home/pdr/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/alloy-json-abi-1.3.1/src/to_sol.rs /home/pdr/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/alloy-json-abi-1.3.1/src/utils.rs /home/pdr/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/alloy-json-abi-1.3.1/src/../README.md
+
+/home/pdr/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/alloy-json-abi-1.3.1/src/lib.rs:
+/home/pdr/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/alloy-json-abi-1.3.1/src/abi.rs:
+/home/pdr/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/alloy-json-abi-1.3.1/src/item.rs:
+/home/pdr/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/alloy-json-abi-1.3.1/src/param.rs:
+/home/pdr/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/alloy-json-abi-1.3.1/src/internal_type.rs:
+/home/pdr/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/alloy-json-abi-1.3.1/src/to_sol.rs:
+/home/pdr/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/alloy-json-abi-1.3.1/src/utils.rs:
+/home/pdr/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/alloy-json-abi-1.3.1/src/../README.md:

@@ -1,0 +1,15 @@
+[package]
+name = "dexes"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+futures = "0.3.31"
+alloy-provider = {workspace = true}
+alloy-primitives = {workspace = true}
+alloy-sol-types = {workspace = true}
+serde = {workspace = true}
+
+sol = { path = "../sol"}
+v3 = { path = "../v3"}
+

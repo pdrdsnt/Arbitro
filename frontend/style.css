@@ -1,0 +1,38 @@
+button {
+	margin: 2px;
+	border: 0px;
+}
+
+body {
+	background-color: black;
+}
+
+.tokens_list_view {
+	display: flexbox;
+}
+
+.token_label_container {
+	background-color: darkmagenta;
+	align-content: center;
+	max-width: 128px;
+	min-width: fit-content;
+	text-align: center;
+}
+
+.token_label_container[data-selected="y"] {
+	background-color: yellow;
+}
+
+.header {
+	display: flex;
+	min-height: 2vw;
+	justify-content: space-between;
+	margin: 2pz;
+	background-color: blueviolet;
+}
+
+.home {
+	margin: 4px;
+	border-color: black;
+	font-family: monospace;
+}
