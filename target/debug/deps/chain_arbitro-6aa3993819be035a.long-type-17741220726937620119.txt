@@ -1,0 +1,1 @@
+(Vec<impl Future<Output = std::option::Option<(alloy::alloy_primitives::Address, V2Data)>>>, Vec<impl Future<Output = Vec<(alloy::alloy_primitives::Address, V3Data)>>>, Vec<impl Future<Output = Vec<V4Pool<P>>>>)

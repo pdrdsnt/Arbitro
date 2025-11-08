@@ -1,0 +1,8 @@
+   0.189378034s  INFO prepare_target{force=false package_id=server v0.1.0 (/home/pdr/Arbitro/server) target="server"}: cargo::core::compiler::fingerprint: fingerprint dirty for server v0.1.0 (/home/pdr/Arbitro/server)/Check { test: false }/TargetInner { name: "server", doc: true, ..: with_path("/home/pdr/Arbitro/server/src/main.rs", Edition2024) }
+   0.189394612s  INFO prepare_target{force=false package_id=server v0.1.0 (/home/pdr/Arbitro/server) target="server"}: cargo::core::compiler::fingerprint:     dirty: FsStatusOutdated(Stale)
+   0.195623217s  INFO prepare_target{force=false package_id=server v0.1.0 (/home/pdr/Arbitro/server) target="server"}: cargo::core::compiler::fingerprint: fingerprint dirty for server v0.1.0 (/home/pdr/Arbitro/server)/Check { test: true }/TargetInner { name: "server", doc: true, ..: with_path("/home/pdr/Arbitro/server/src/main.rs", Edition2024) }
+   0.195631999s  INFO prepare_target{force=false package_id=server v0.1.0 (/home/pdr/Arbitro/server) target="server"}: cargo::core::compiler::fingerprint:     dirty: FsStatusOutdated(Stale)
+    Checking server v0.1.0 (/home/pdr/Arbitro/server)
+error: could not compile `server` (bin "server" test) due to 6 previous errors; 3 warnings emitted
+warning: build failed, waiting for other jobs to finish...
+error: could not compile `server` (bin "server") due to 6 previous errors; 3 warnings emitted

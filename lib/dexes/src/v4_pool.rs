@@ -32,11 +32,14 @@ impl V4Data {
 pub struct V4Pool<P: Provider + Clone> {
     pub contract: StateViewInstance<P>,
     pub data: V4Data,
-
     pub id: B256,
 }
 
 impl<P: Provider + Clone> V4Pool<P> {
+    pub fn new(contract: StateViewInstance<P>, data: V4Data) -> Self {
+        let id = keccak256(data.pool_key.abi_encode());
+        V4Pool { contract, data, id }
+    }
     pub async fn try_fill_pool_rpc(mut self) -> Self {
         let contract = &self.contract;
         let a = self.data.pool_key.abi_encode();

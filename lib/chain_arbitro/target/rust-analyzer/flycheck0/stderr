@@ -1,0 +1,5 @@
+error: cyclic package dependency: package `chains v0.1.0 (/home/pdr/Arbitro/lib/chains)` depends on itself. Cycle:
+package `chains v0.1.0 (/home/pdr/Arbitro/lib/chains)`
+    ... which satisfies path dependency `chains` (locked to 0.1.0) of package `dexes v0.1.0 (/home/pdr/Arbitro/lib/dexes)`
+    ... which satisfies path dependency `dexes` (locked to 0.1.0) of package `chains v0.1.0 (/home/pdr/Arbitro/lib/chains)`
+    ... which satisfies path dependency `chains` (locked to 0.1.0) of package `arbitro v0.1.0 (/home/pdr/Arbitro/lib/arbitro)`

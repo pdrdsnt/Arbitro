@@ -1,0 +1,2 @@
+fn(axum::extract::Path<u64>, State<Arc<tokio::sync::RwLock<Chains>>>) -> impl Future<Output = Option<axum::Json<ChainDataJsonModelSmall>>> {get_chain_data}
+fn(axum::extract::Path<u64>, State<Arc<tokio::sync::RwLock<Chains>>>) -> impl Future<Output = Option<axum::Json<ChainDataJsonModelSmall>>> {get_chain_data}: Handler<_, _>

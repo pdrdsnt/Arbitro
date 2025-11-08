@@ -11,7 +11,7 @@ body {
 	display: flexbox;
 }
 
-.token_label_container {
+.tkn {
 	background-color: darkmagenta;
 	align-content: center;
 	max-width: 128px;
@@ -19,11 +19,25 @@ body {
 	text-align: center;
 }
 
-.token_label_container[data-selected="y"] {
+.tkn[data-selected="y"] {
 	background-color: yellow;
 }
 
-.header {
+.connect[data-connect="n"] {
+	background-color: darkblue;
+}
+
+
+.connect[data-connect="l"] {
+	background-color: grey;
+}
+
+
+.connect[data-connect="y"] {
+	background-color: greenyellow;
+}
+
+.chains {
 	display: flex;
 	min-height: 2vw;
 	justify-content: space-between;

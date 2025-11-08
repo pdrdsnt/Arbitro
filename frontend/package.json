@@ -15,9 +15,11 @@
   "dependencies": {
     "@metamask/providers": "^22.1.1",
     "ethers": "^6.15.0",
-    "viem": "^2.37.5"
+    "vue": "^3.5.22"
   },
   "devDependencies": {
+    "@vitejs/plugin-vue": "^6.0.1",
+    "prettier": "3.6.2",
     "vite": "^7.1.5"
   }
 }

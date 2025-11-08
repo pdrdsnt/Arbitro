@@ -1,0 +1,197 @@
+use std::{collections::BTreeMap, fs::File, io::Read, str::FromStr};
+
+use alloy::{json_abi::Error, primitives::Address, providers::Provider};
+use dexes::{any_pool::AnyPool, v4_pool::V4Data};
+use serde::{Deserialize, Serialize};
+use sol::sol_types::PoolKey;
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct BlockChainsJsonModel {
+    pub chains: Vec<ChainDataJsonModel>,
+}
+
+impl BlockChainsJsonModel {
+    pub fn new(json_path: &str) -> Result<Self, serde_json::Error> {
+        let Ok(mut json_file) = File::open(json_path) else {
+            print!("{}", json_path);
+            panic!()
+        };
+
+        let mut str_json = String::new();
+        json_file.read_to_string(&mut str_json).unwrap();
+
+        let blockchains: Result<BlockChainsJsonModel, serde_json::Error> =
+            serde_json::from_str(&str_json);
+
+        blockchains
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ChainDataJsonModel {
+    pub id: u64,
+    pub name: String,
+    pub pools: Vec<PoolJsonModel>,
+    pub dexes: Vec<DexJsonModel>,
+    pub tokens: Vec<TokenJsonModel>,
+    pub ws_providers: Vec<String>,
+    pub http_providers: Vec<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ChainDataJsonModelSmall {
+    pub pools: Vec<PoolJsonModel>,
+    pub dexes: Vec<DexJsonModel>,
+    pub tokens: Vec<TokenJsonModel>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(tag = "version")]
+pub enum DexJsonModel {
+    #[serde(rename = "v2")]
+    V2 {
+        address: String,
+        fee: u32,
+        stable_fee: Option<u32>,
+    },
+
+    #[serde(rename = "v3")]
+    V3 { address: String, fee: Vec<u32> },
+
+    #[serde(rename = "v4")]
+    V4 { address: String },
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct TokenJsonModel {
+    pub name: String,
+    pub symbol: String,
+    pub address: String,
+    pub decimals: u8,
+    pub stable: Option<bool>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(tag = "version")]
+pub enum PoolJsonModel {
+    #[serde(rename = "v2")]
+    V2 {
+        factory: Option<String>,
+        address: String,
+        token0: String,
+        token1: String,
+        fee: u32,
+    },
+
+    #[serde(rename = "v3")]
+    V3 {
+        factory: Option<String>,
+        address: String,
+        token0: String,
+        token1: String,
+        fee: u32,
+    },
+
+    #[serde(rename = "v4")]
+    V4 {
+        factory: Option<String>,
+        address: String,
+        token0: String,
+        token1: String,
+        fee: u32,
+        spacing: i32,
+        hooks: Option<String>,
+    },
+}
+
+impl<P: Provider + Clone> TryInto<AnyPool<P>> for PoolJsonModel {
+    type Error = Error;
+
+    fn try_into(self) -> Result<AnyPool<P>, Self::Error> {
+         match self {
+                    PoolJsonModel::V2 {
+                        factory,
+                        address,
+                        token0,
+                        token1,
+                        fee,
+                    } => {
+                        let t0 = Address::from_str(token0.as_str());
+                        let t1 = Address::from_str(token1.as_str());
+                        if let Ok(f_addr) = Address::from_str(factory.unwrap().as_str()) {
+                            let data = V2Data {
+                                name: None,
+                                reserves: None,
+                                fee: Some(alloy::primitives::aliases::U24::from(*fee)),
+                                token0: if let Ok(t) = t0 { Some(t) } else { None },
+                                token1: if let Ok(t) = t1 { Some(t) } else { None },
+                            };
+                            let contract = IUniswapV2PairInstance::new(f_addr, provider);
+                            Some(AnyPool::V2(V2Pool::new(contract, data)))
+                        } else {
+                            None
+                        }
+                    }
+                    PoolJsonModel::V3 {
+                        factory,
+                        address,
+                        token0,
+                        token1,
+                        fee,
+                    } => {
+                        let t0 = Address::from_str(token0.as_str());
+                        let t1 = Address::from_str(token1.as_str());
+                        if let Ok(f_addr) = Address::from_str(factory.unwrap().as_str()) {
+                            let data = V3Data {
+                                fee: Some(alloy::primitives::aliases::U24::from(*fee)),
+                                token0: if let Ok(t) = t0 { Some(t) } else { None },
+                                token1: if let Ok(t) = t1 { Some(t) } else { None },
+                                slot0: None,
+                                liquidity: None,
+                                ticks: BTreeMap::new(),
+                                tick_spacing: None,
+                            };
+                            let contract = V3PoolInstance::new(f_addr, provider);
+                            Some(AnyPool::V3(V3Pool::new(contract, data)))
+                        } else {
+                            None
+                        }
+                    }
+                    PoolJsonModel::V4 {
+                        factory,
+                        address,
+                        token0,
+                        token1,
+                        fee,
+                        spacing,
+                        hooks,
+                    } => {
+                        let Ok(t0) = Address::from_str(token0.as_str()) else {return Error::from_str("A") ;
+                        let Ok(t1) = Address::from_str(token1.as_str()) else {return ()};
+                        let fee
+                        if let Ok(f_addr) = Address::from_str(factory.unwrap().as_str()) {
+                            let pool_key = PoolKey {
+                                currency0: todo!(),
+                                currency1: todo!(),
+                                fee: todo!(),
+                                tickSpacing: todo!(),
+                                hooks: todo!(),
+                            };
+
+                            let data = V4Data {
+                                slot0: None,
+                                liquidity: None,
+                                ticks: BTreeMap::new(),
+                                pool_key: todo!(),
+                            };
+
+                            let contract = StateViewInstance::new(f_addr, provider);
+                            Some(AnyPool::V3(V4Pool::new(contract, data)))
+                        } else {
+                           return Error::from_str("erro");
+                        }
+                    }
+                };
+
+    }
+}

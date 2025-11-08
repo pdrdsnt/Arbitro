@@ -32,7 +32,7 @@ pub struct V2Pool<P: Provider + Clone> {
 }
 
 impl<P: Provider + Clone> V2Pool<P> {
-    pub async fn new(contract: IUniswapV2PairInstance<P>, data: V2Data) -> V2Pool<P> {
+    pub fn new(contract: IUniswapV2PairInstance<P>, data: V2Data) -> V2Pool<P> {
         Self { contract, data }
     }
 
