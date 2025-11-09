@@ -1,0 +1,1 @@
+(alloy::alloy_primitives::Uint<160, 3>, alloy::alloy_primitives::Signed<24, 1>, alloy::alloy_primitives::Uint<24, 1>, alloy::alloy_primitives::Uint<24, 1>, {integer}, {integer}, bool)

@@ -13,7 +13,7 @@ impl<P: Provider + Clone> ArbitroManager<P> {
     pub fn new(chains: Chains, provider: P) -> Self {
         let map = BTreeMap::new();
         for (id, chain) in chains.chains {
-            let new = ChainArbitro::from_chain(chain, provider.clone());
+            let new = ChainArbitro::from_chain(&chain, provider.clone());
         }
         Self { arbitros: map }
     }

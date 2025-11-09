@@ -18,7 +18,6 @@ impl<P: Provider + Clone> AnyPool<P> {
     pub fn to_key(&self) -> AnyPoolKey {
         match self {
             AnyPool::V2(v2_pool) => AnyPoolKey::V2(*v2_pool.contract.address()),
-
             AnyPool::V3(v3_pool) => AnyPoolKey::V3(*v3_pool.contract.address()),
             AnyPool::V4(v4_pool) => AnyPoolKey::V4(*v4_pool.contract.address(), v4_pool.id),
         }

@@ -35,18 +35,18 @@ pub struct ChainArbitro<P: Provider + Clone> {
 }
 
 impl<P: Provider + Clone> ChainArbitro<P> {
-    pub fn from_chain(chain: Chain, provider: P) -> Self {
+    pub fn from_chain(chain: &Chain, provider: P) -> Self {
         let mut dexes: Vec<AnyFactory<P>> = Vec::new();
         let mut tokens: HashMap<Address, Token<P>> = HashMap::new();
 
-        for c in chain.tokens {
+        for c in &chain.tokens {
             let token = Token::from_token_model(&c, provider.clone());
             if let Ok(addr) = Address::from_str(&c.address) {
                 tokens.insert(addr, token);
             }
         }
 
-        for c in chain.dexes {
+        for c in &chain.dexes {
             match c {
                 chains::chain_json_model::DexJsonModel::V2 {
                     address,
@@ -58,7 +58,7 @@ impl<P: Provider + Clone> ChainArbitro<P> {
                         let factory = AnyFactory::V2(V2Factory {
                             name: "lost".to_string(),
                             contract: contract,
-                            fee: alloy::primitives::aliases::U24::from(fee),
+                            fee: alloy::primitives::aliases::U24::from(*fee),
                         });
                         dexes.push(factory);
                     }
@@ -91,7 +91,7 @@ impl<P: Provider + Clone> ChainArbitro<P> {
         let mut pools_by_token: HashMap<Address, Vec<AnyPoolKey>> = HashMap::new();
         let mut pools = HashMap::<AnyPoolKey, AnyPool<P>>::new();
 
-        for (k, p) in chain.pools {
+        for (k, p) in &chain.pools {
             let a = p.iter().for_each(|x| {
                 if let Some(pool) = x.clone().to_pool(provider.clone()) {
                     if let Some(pool_key) = x.clone().to_key() {
