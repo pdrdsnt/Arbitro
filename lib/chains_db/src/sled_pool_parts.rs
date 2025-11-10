@@ -1,4 +1,27 @@
-#[derive(Serialize, Deserialize, Decode, Encode, Hash, Debug, PartialEq, Eq, PartialOrd, Ord)]
+use std::collections::BTreeMap;
+
+use alloy::primitives::Address;
+use alloy::primitives::U160;
+use alloy::primitives::aliases::I24;
+use alloy::primitives::aliases::U24;
+use alloy::primitives::keccak256;
+use alloy::providers::Provider;
+use alloy::sol_types::SolValue;
+use bincode::Decode;
+use bincode::Encode;
+use dexes::any_pool::AnyPool;
+use dexes::v2_pool::V2Data;
+use dexes::v2_pool::V2Pool;
+use dexes::v3_pool::V3Data;
+use dexes::v3_pool::V3Pool;
+use dexes::v4_pool::V4Data;
+use dexes::v4_pool::V4Pool;
+use sol::sol_types::IUniswapV2Pair::IUniswapV2PairInstance;
+use sol::sol_types::PoolKey;
+use sol::sol_types::StateView::StateViewInstance;
+use sol::sol_types::V3Pool::V3PoolInstance;
+
+#[derive(Decode, Encode, Hash, Debug, PartialEq, Eq, PartialOrd, Ord)]
 pub struct PoolTokens {
     #[bincode(with_serde)]
     pub a: Option<Address>,
@@ -6,13 +29,13 @@ pub struct PoolTokens {
     pub b: Option<Address>,
 }
 
-#[derive(Serialize, Deserialize, Decode, Encode, Debug)]
+#[derive(Decode, Encode, Debug)]
 pub enum AnyPoolState {
     V2(V2PoolState),
     V3(V3PoolState),
 }
 
-#[derive(Serialize, Deserialize, Decode, Encode, Debug)]
+#[derive(Decode, Encode, Debug)]
 pub struct V3PoolState {
     #[bincode(with_serde)]
     pub tick: Option<I24>,
@@ -22,7 +45,7 @@ pub struct V3PoolState {
     pub liquidity: Option<u128>,
 }
 
-#[derive(Serialize, Deserialize, Decode, Encode, Debug)]
+#[derive(Decode, Encode, Debug)]
 pub struct V2PoolState {
     #[bincode(with_serde)]
     pub r0: u128,
@@ -30,17 +53,17 @@ pub struct V2PoolState {
     pub r1: u128,
 }
 
-#[derive(Serialize, Deserialize, Decode, Encode, Debug)]
+#[derive(Decode, Encode, Debug)]
 pub struct PoolWord {
     pub ticks: Vec<PoolTick>,
 }
 
-#[derive(Serialize, Deserialize, Decode, Encode, Debug)]
+#[derive(Decode, Encode, Debug)]
 pub struct PoolWords {
     pub words: BTreeMap<i16, PoolWord>,
 }
 
-#[derive(Serialize, Deserialize, Decode, Encode, Debug)]
+#[derive(Decode, Encode, Debug)]
 pub struct PoolTick {
     #[bincode(with_serde)]
     pub tick: I24,
@@ -49,7 +72,7 @@ pub struct PoolTick {
     pub liquidity_net: Option<i128>,
 }
 
-#[derive(Serialize, Deserialize, Decode, Encode, Debug)]
+#[derive(Decode, Encode, Debug)]
 pub enum AnyPoolSled {
     V2(
         u64,
@@ -193,14 +216,21 @@ impl AnyPoolSled {
     }
 }
 
-#[derive(Serialize, Deserialize, Decode, Encode, Debug)]
+#[derive(Decode, Encode, Debug)]
+pub enum AnyPoolConfig {
+    V2(V2Config),
+    V3(V3Config),
+    V4(V4Config),
+}
+
+#[derive(Decode, Encode, Debug)]
 pub struct V2Config {
     pub name: Option<String>,
     #[bincode(with_serde)]
     pub fee: Option<U24>,
 }
 
-#[derive(Serialize, Deserialize, Decode, Encode, Debug)]
+#[derive(Decode, Encode, Debug)]
 pub struct V3Config {
     pub name: Option<String>,
     #[bincode(with_serde)]
@@ -209,7 +239,7 @@ pub struct V3Config {
     pub tick_spacing: Option<I24>,
 }
 
-#[derive(Serialize, Deserialize, Decode, Encode, Debug)]
+#[derive(Decode, Encode, Debug)]
 pub struct V4Config {
     #[bincode(with_serde)]
     pub fee: U24,

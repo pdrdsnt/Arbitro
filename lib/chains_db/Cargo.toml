@@ -6,4 +6,6 @@ edition = "2024"
 [dependencies]
 alloy = { workspace = true }
 bincode = { version = "2.0.1", features = ["serde"] }
+dexes = { path = "../dexes" }
 sled = "0.34.7"
+sol = { path = "../sol" }

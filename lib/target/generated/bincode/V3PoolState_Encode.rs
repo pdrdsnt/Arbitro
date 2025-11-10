@@ -1,0 +1,15 @@
+impl :: bincode :: Encode for V3PoolState
+{
+    fn encode < __E : :: bincode :: enc :: Encoder >
+    (& self, encoder : & mut __E) ->core :: result :: Result < (), :: bincode
+    :: error :: EncodeError >
+    {
+        :: bincode :: Encode ::
+        encode(&::bincode::serde::Compat(&self.tick), encoder) ?; :: bincode
+        :: Encode ::
+        encode(&::bincode::serde::Compat(&self.x96price), encoder) ?; ::
+        bincode :: Encode ::
+        encode(&::bincode::serde::Compat(&self.liquidity), encoder) ?; core ::
+        result :: Result :: Ok(())
+    }
+}

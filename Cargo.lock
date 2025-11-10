@@ -1117,7 +1117,9 @@ version = "0.1.0"
 dependencies = [
  "alloy",
  "bincode",
+ "dexes",
  "sled",
+ "sol",
 ]
 
 [[package]]
