@@ -4,6 +4,8 @@ members = [
   "lib/arbitro",
   "lib/chain_arbitro",
   "lib/chains",
+  "lib/chains_db",
+  "lib/chains_db",
   "lib/dexes",
   "lib/sol",
   "lib/v3",
