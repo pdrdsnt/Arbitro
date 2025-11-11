@@ -16,6 +16,7 @@ use dexes::v3_pool::V3Data;
 use dexes::v3_pool::V3Pool;
 use dexes::v4_pool::V4Data;
 use dexes::v4_pool::V4Pool;
+use dexes::words::TicksBitMap;
 use sol::sol_types::IUniswapV2Pair::IUniswapV2PairInstance;
 use sol::sol_types::PoolKey;
 use sol::sol_types::StateView::StateViewInstance;
@@ -86,6 +87,7 @@ pub enum AnyPoolSled {
         #[bincode(with_serde)] Address,
         V3Config,
         V3PoolState,
+        AnyPoolLiquidityNets,
         PoolTokens,
     ),
     V4(
@@ -93,6 +95,7 @@ pub enum AnyPoolSled {
         #[bincode(with_serde)] Address,
         V4Config,
         V3PoolState,
+        AnyPoolLiquidityNets,
         PoolTokens,
     ),
 }
@@ -130,6 +133,9 @@ impl AnyPoolSled {
                         tick: if let Some(s) = slot0 { Some(s.1) } else { None },
                         x96price: if let Some(s) = slot0 { Some(s.0) } else { None },
                         liquidity: v3_pool.data.liquidity,
+                    },
+                    AnyPoolLiquidityNets {
+                        ticks: v3_pool.data.ticks,
                     },
                     PoolTokens {
                         a: v3_pool.data.token0,
@@ -247,4 +253,10 @@ pub struct V4Config {
     pub tick_spacing: I24,
     #[bincode(with_serde)]
     pub hooks: Address,
+}
+
+#[derive(Decode, Encode, Debug)]
+pub struct AnyPoolLiquidityNets {
+    #[bincode(with_serde)]
+    ticks: BTreeMap<I24, TicksBitMap>,
 }

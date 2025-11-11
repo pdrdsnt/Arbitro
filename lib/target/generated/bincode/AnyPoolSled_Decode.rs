@@ -26,7 +26,8 @@ impl < __Context > :: bincode :: Decode < __Context > for AnyPoolSled
                 ?.0, 2 : :: bincode :: Decode ::< __D :: Context >::
                 decode(decoder) ?, 3 : :: bincode :: Decode ::< __D :: Context
                 >:: decode(decoder) ?, 4 : :: bincode :: Decode ::< __D ::
-                Context >:: decode(decoder) ?,
+                Context >:: decode(decoder) ?, 5 : :: bincode :: Decode ::<
+                __D :: Context >:: decode(decoder) ?,
             }), 2u32 =>core :: result :: Result ::
             Ok(Self ::V4
             {
@@ -36,7 +37,8 @@ impl < __Context > :: bincode :: Decode < __Context > for AnyPoolSled
                 ?.0, 2 : :: bincode :: Decode ::< __D :: Context >::
                 decode(decoder) ?, 3 : :: bincode :: Decode ::< __D :: Context
                 >:: decode(decoder) ?, 4 : :: bincode :: Decode ::< __D ::
-                Context >:: decode(decoder) ?,
+                Context >:: decode(decoder) ?, 5 : :: bincode :: Decode ::<
+                __D :: Context >:: decode(decoder) ?,
             }), variant =>core :: result :: Result ::
             Err(:: bincode :: error :: DecodeError :: UnexpectedVariant
             {
@@ -77,7 +79,8 @@ for AnyPoolSled
                 BorrowDecode ::< __D :: Context >:: borrow_decode(decoder) ?,
                 3 : :: bincode :: BorrowDecode ::< __D :: Context >::
                 borrow_decode(decoder) ?, 4 : :: bincode :: BorrowDecode ::<
-                __D :: Context >:: borrow_decode(decoder) ?,
+                __D :: Context >:: borrow_decode(decoder) ?, 5 : :: bincode ::
+                BorrowDecode ::< __D :: Context >:: borrow_decode(decoder) ?,
             }), 2u32 =>core :: result :: Result ::
             Ok(Self ::V4
             {
@@ -88,7 +91,8 @@ for AnyPoolSled
                 BorrowDecode ::< __D :: Context >:: borrow_decode(decoder) ?,
                 3 : :: bincode :: BorrowDecode ::< __D :: Context >::
                 borrow_decode(decoder) ?, 4 : :: bincode :: BorrowDecode ::<
-                __D :: Context >:: borrow_decode(decoder) ?,
+                __D :: Context >:: borrow_decode(decoder) ?, 5 : :: bincode ::
+                BorrowDecode ::< __D :: Context >:: borrow_decode(decoder) ?,
             }), variant =>core :: result :: Result ::
             Err(:: bincode :: error :: DecodeError :: UnexpectedVariant
             {

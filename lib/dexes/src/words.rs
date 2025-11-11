@@ -5,13 +5,13 @@ use serde::{Deserialize, Serialize};
 
 pub type PoolWords = BTreeMap<i16, TicksBitMap>;
 
-#[derive(Clone, Serialize, Deserialize)]
+#[derive(Clone, Serialize, Deserialize, Debug)]
 pub struct TicksBitMap {
     pub bitmap: U256,
     pub ticks: Vec<TickData>,
 }
 
-#[derive(Clone, Serialize, Deserialize)]
+#[derive(Clone, Serialize, Deserialize, Debug)]
 pub struct TickData {
     pub tick: I24,
     pub liquidity_net: Option<i128>,

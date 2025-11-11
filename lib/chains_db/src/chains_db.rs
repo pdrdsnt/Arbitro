@@ -1,6 +1,6 @@
-use std::path::PathBuf;
+use std::{any::Any, path::PathBuf, task::Context};
 
-use bincode::config::Configuration;
+use bincode::{Decode, Encode, config::Configuration, de::BorrowDecoder};
 use sled::{Db, Tree};
 
 use crate::{
@@ -20,36 +20,32 @@ pub struct ChainsDB {
 
 impl ChainsDB {
     pub fn get_pool_state(&self, key: SledPoolKey) -> Result<AnyPoolState, sled::Error> {
-        if let Ok(k) = bincode::encode_to_vec(key, bincode::config::standard()) {
-            match self.state_by_pool.get(k) {
-                Ok(value) => todo!(),
-                Err(err) => return Err(err),
-            }
-            if let Ok(state) = self.state_by_pool.get(k) {
-                if let Some(data) = state {
-                    let decoded = bincode::decode_from_slice::<AnyPoolState, Configuration>(
-                        &data,
-                        bincode::config::standard(),
-                    );
-                } else {
-                    return Err(sled::Error::Unsupported("value not founded".to_string()));
-                }
-            }
-        }
-        Err(sled::Error::Unsupported("key not valid".to_string()))
+        self.get_thing(&self.state_by_pool, key)
+    }
+    pub fn get_pool_tokens(&self, key: SledPoolKey) -> Result<PoolTokens, sled::Error> {
+        self.get_thing(&self.tokens_by_pool, key)
+    }
+    pub fn get_pool_config(&self, key: SledPoolKey) -> Result<AnyPoolConfig, sled::Error> {
+        self.get_thing(&self.state_by_pool, key)
+    }
+    pub fn get_pool_ticks(&self, key: SledPoolKey) -> Result<AnyPool, sled::Error> {
+        self.get_thing(&self.state_by_pool, key)
     }
 
-    pub fn save_pool_state(&self, key: SledPoolKey, state: AnyPoolState) {
-        if let (Ok(k), Ok(d)) = (
-            bincode::encode_to_vec(key, bincode::config::standard()),
-            bincode::encode_to_vec(state, bincode::config::standard()),
-        ) {
-            self.state_by_pool.insert(k, d);
-        }
+    pub fn save_pool_state(
+        &self,
+        key: SledPoolKey,
+        state: AnyPoolState,
+    ) -> Result<Option<sled::IVec>, sled::Error> {
+        self.save_thing(&self.state_by_pool, key, state)
     }
+}
 
-    fn new(root_path: PathBuf) -> Result<ChainsDB, ()> {
-        let db_path = root_path;
+impl TryFrom<PathBuf> for ChainsDB {
+    type Error = ();
+
+    fn try_from(value: PathBuf) -> Result<Self, Self::Error> {
+        let db_path = value;
 
         let Ok(db) = sled::open(db_path) else {
             return Err(());
@@ -78,5 +74,42 @@ impl ChainsDB {
             ticks_by_pool: p_ticks,
             config_by_pool: p_configs,
         })
+    }
+}
+impl SledBincodeDb for ChainsDB {}
+
+pub trait SledBincodeDb {
+    fn get_thing<R: bincode::Decode<()>>(
+        &self,
+        tree: &Tree,
+        key: impl Encode,
+    ) -> Result<R, sled::Error> {
+        let key = bincode::encode_to_vec(key, bincode::config::standard())
+            .map_err(|_| sled::Error::Unsupported("invalid key encoding".into()))?;
+
+        let data = tree
+            .get(key)?
+            .ok_or_else(|| sled::Error::Unsupported("key not found".into()))?;
+
+        let (decoded, _len): (R, usize) =
+            bincode::decode_from_slice(&data, bincode::config::standard())
+                .map_err(|_| sled::Error::Unsupported("invalid data decoding".into()))?;
+
+        Ok(decoded)
+    }
+
+    fn save_thing(
+        &self,
+        tree: &Tree,
+        key: impl Encode,
+        value: impl Encode,
+    ) -> Result<Option<sled::IVec>, sled::Error> {
+        let key = bincode::encode_to_vec(key, bincode::config::standard())
+            .map_err(|_| sled::Error::Unsupported("invalid key encoding".into()))?;
+
+        let data = bincode::encode_to_vec(value, bincode::config::standard())
+            .map_err(|_| sled::Error::Unsupported("invalid value encoding".into()))?;
+
+        tree.insert(key, data)
     }
 }

@@ -1408,6 +1408,7 @@ dependencies = [
  "alloy-primitives",
  "alloy-provider",
  "alloy-sol-types",
+ "bincode",
  "futures",
  "serde",
  "sol",
