@@ -9,6 +9,7 @@ pub mod factory;
 
 pub mod any_factory;
 pub mod any_pool;
+pub mod clpool;
 pub mod token;
 pub mod v2_factory;
 pub mod v2_pool;

@@ -10,5 +10,5 @@ chain_json = { workspace = true }
 chain_live = { workspace = true }
 futures = "0.3.31"
 sol = { workspace = true }
-tokio = "1.48.0"
+tokio = { workspace = true }
 v3 = { workspace = true }

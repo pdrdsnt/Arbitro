@@ -1,7 +1,7 @@
 use std::str::FromStr;
 
 use alloy::providers::Provider;
-use chains::chain_json_model::TokenJsonModel;
+use chain_json::chain_json_model::TokenJsonModel;
 use sol::sol_types::IERC20::IERC20Instance;
 
 pub struct Token<P: Provider> {

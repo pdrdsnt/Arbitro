@@ -5,6 +5,7 @@ use alloy_primitives::{
     aliases::{I24, U24},
 };
 use alloy_provider::Provider;
+use chain_db::sled_pool_parts::PoolWords;
 use futures::future::join_all;
 use sol::sol_types::IUniswapV3Factory::IUniswapV3FactoryInstance;
 
@@ -39,7 +40,7 @@ impl<P: Provider + Clone> V3Factory<P> {
                 token1: Some(b),
                 slot0: None,
                 liquidity: None,
-                ticks: BTreeMap::new(),
+                ticks: PoolWords::default(),
             };
 
             fut.push(async move { (self.contract.getPool(a, b, U24::from(fee)).call().await, p) });

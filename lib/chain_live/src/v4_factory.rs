@@ -6,6 +6,7 @@ use alloy_primitives::{
 
 use alloy_provider::Provider;
 use alloy_sol_types::SolValue;
+use chain_db::sled_pool_parts::PoolWords;
 use futures::future::join_all;
 use sol::sol_types::{PoolKey, StateView::StateViewInstance};
 use std::collections::BTreeMap;
@@ -47,7 +48,7 @@ impl<P: Provider + Clone> V4Factory<P> {
                     let new = V4Data {
                         slot0: None,
                         liquidity: None,
-                        ticks: BTreeMap::new(),
+                        ticks: PoolWords::default(),
                         pool_key: key.clone(),
                     };
                     let new_pool = V4Pool {

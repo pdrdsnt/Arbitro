@@ -7,13 +7,12 @@ use alloy_primitives::{
 };
 use alloy_provider::Provider;
 use alloy_sol_types::SolValue;
-use chains_db::sled_pool_parts::PoolWords;
+use chain_db::sled_pool_parts::PoolWords;
 use serde::{Deserialize, Serialize};
 use sol::sol_types::{PoolKey, StateView::StateViewInstance};
 use v3::v3_base::bitmap_math;
 type Slot0tuple = (U160, I24, U24, U24);
 
-use crate::clpool::CLPool;
 pub struct V4Data {
     pub slot0: Option<Slot0tuple>,
     pub liquidity: Option<u128>,

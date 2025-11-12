@@ -48,25 +48,6 @@ pub struct V2PoolState {
 }
 
 #[derive(Decode, Encode, Debug)]
-pub struct PoolWord {
-    pub ticks: Vec<PoolTick>,
-}
-
-#[derive(Decode, Encode, Debug)]
-pub struct PoolWords {
-    pub words: BTreeMap<i16, PoolWord>,
-}
-
-#[derive(Decode, Encode, Debug)]
-pub struct PoolTick {
-    #[bincode(with_serde)]
-    pub tick: I24,
-
-    #[bincode(with_serde)]
-    pub liquidity_net: Option<i128>,
-}
-
-#[derive(Decode, Encode, Debug)]
 pub enum AnyPoolSled {
     V2(
         u64,
@@ -125,7 +106,7 @@ pub struct V4Config {
     pub hooks: Address,
 }
 
-#[derive(Decode, Encode, Debug, PartialEq, Eq, PartialOrd, Ord)]
+#[derive(Clone, Decode, Encode, Debug, PartialEq, Eq, PartialOrd, Ord)]
 pub struct WordPos(#[bincode(with_serde)] I24);
 impl Into<I24> for WordPos {
     fn into(self) -> I24 {
@@ -137,19 +118,24 @@ impl From<I24> for WordPos {
         Self(value)
     }
 }
-#[derive(Decode, Encode, Debug)]
+
+#[derive(Decode, Encode, Debug, Clone)]
 pub struct AnyPoolLiquidityNets {
     pub ticks: BTreeMap<WordPos, TicksBitMap>,
 }
-#[derive(Decode, Encode, Debug)]
+#[derive(Decode, Encode, Debug, Clone)]
 pub struct TicksBitMap {
     #[bincode(with_serde)]
     pub bitmap: U256,
     pub ticks: BTreeMap<WordPos, TickData>,
 }
 
-#[derive(Encode, Decode, Debug)]
+#[derive(Encode, Decode, Debug, Clone)]
 pub struct TickData {
     #[bincode(with_serde)]
     pub liquidity_net: Option<i128>,
+}
+#[derive(Decode, Default, Clone, Encode, Debug)]
+pub struct PoolWords {
+    pub words: BTreeMap<i16, TicksBitMap>,
 }

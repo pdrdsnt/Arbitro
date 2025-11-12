@@ -8,8 +8,9 @@ use crate::{
     sled_pool_parts::{AnyPoolConfig, AnyPoolLiquidityNets, AnyPoolState, PoolTokens},
 };
 
-#[derive(Clone)]
 pub struct ChainsDB {
+    pool_keys: HashSet<SledPoolKey>,
+
     config_by_pool: Tree,
     state_by_pool: Tree,
     tokens_by_pool: Tree,
@@ -121,6 +122,7 @@ impl TryFrom<PathBuf> for ChainsDB {
             ticks_by_pool: p_ticks,
             config_by_pool: p_configs,
             pool_by_pair: p_by_pairs,
+            pool_keys: HashSet::new(),
         })
     }
 }

@@ -4,7 +4,6 @@ use alloy::primitives::{Address, B256};
 use bincode::{Decode, Encode};
 
 #[derive(Decode, Encode, Hash, Debug, PartialEq, Eq, PartialOrd, Ord)]
-
 pub enum SledPoolKey {
     V2(AddId),
     V3(AddId),

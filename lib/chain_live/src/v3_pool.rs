@@ -1,21 +1,21 @@
 use std::collections::BTreeMap;
 
 use alloy_primitives::{
-    Address, U160,
+    Address, U160, U256,
     aliases::{I24, U24},
 };
 use alloy_provider::Provider;
-use chain_db::sled_pool_parts::{TickData, TicksBitMap, WordPos};
+use chain_db::sled_pool_parts::{PoolWords, TickData, TicksBitMap, WordPos};
 use futures::future::join_all;
 use serde::{Deserialize, Serialize};
 use sol::sol_types::V3Pool::V3PoolInstance;
 use v3::v3_base::bitmap_math;
 
-use crate::{clpool::CLPool, ticks_bitmap::PoolWords};
+use crate::clpool::CLPool;
 
 type Slot0tuple = (U160, I24, u16, u16, u16, u8, bool);
 
-#[derive(Clone, Serialize, Deserialize)]
+#[derive(Clone)]
 pub struct V3Data {
     pub slot0: Option<Slot0tuple>,
     pub liquidity: Option<u128>,
@@ -89,57 +89,11 @@ impl<P: Provider + Clone> V3Pool<P> {
                 .get_word_ticks(key, self.data.tick_spacing.unwrap())
                 .await
             {
-                self.data.ticks.insert(key, ticks);
+                self.data.ticks.words.insert(key, ticks);
             }
         }
 
         self
-    }
-    async fn get_word_ticks(&self, word: i16, tick_spacing: I24) -> Option<TicksBitMap> {
-        if let Ok(bitmap) = self.contract.tickBitmap(word).call().await {
-            let tks = bitmap_math::extract_ticks_from_bitmap(bitmap, word, tick_spacing);
-
-            let ticks = self.fetch_ticks(tks).await;
-
-            return Some(TicksBitMap { bitmap, ticks });
-        };
-
-        None
-    }
-
-    async fn fetch_ticks(&self, ticks: Vec<I24>) -> BTreeMap<WordPos, TickData> {
-        let mut ticks_call = Vec::with_capacity(ticks.len());
-
-        for tick in ticks.into_iter() {
-            let co = self.contract.clone();
-            ticks_call.push(async move { (co.ticks(tick).call().into_future().await, tick) });
-        }
-
-        let mut ticks: BTreeMap<WordPos, TickData> = BTreeMap::new();
-
-        join_all(ticks_call)
-            .await
-            .into_iter()
-            .for_each(|(s, i)| match s {
-                Ok(tick_data) => {
-                    Some(ticks.insert(
-                        i.into(),
-                        TickData {
-                            liquidity_net: Some(tick_data.liquidityNet),
-                        },
-                    ));
-                }
-                Err(_) => {
-                    Some(ticks.insert(
-                        i.into(),
-                        TickData {
-                            liquidity_net: None,
-                        },
-                    ));
-                }
-            });
-
-        return ticks;
     }
 }
 
@@ -149,10 +103,27 @@ impl Default for V3Data {
             slot0: None,
             liquidity: None,
             fee: None,
-            ticks: PoolWords::new(),
+            ticks: PoolWords::default(),
             tick_spacing: None,
             token0: None,
             token1: None,
         }
+    }
+}
+
+impl<P: Provider + Clone> CLPool for V3Pool<P> {
+    async fn bitmap_call(
+        &self,
+        word: i16,
+    ) -> Result<alloy_primitives::Uint<256, 4>, alloy::contract::Error> {
+        self.contract.tickBitmap(word).call().await
+    }
+
+    async fn tick_call(
+        &self,
+        tick: I24,
+    ) -> Result<sol::sol_types::V3Pool::ticksReturn, alloy::contract::Error> {
+        let co = self.contract.clone();
+        co.ticks(tick).call().into_future().await
     }
 }
