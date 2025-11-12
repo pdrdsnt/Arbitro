@@ -7,7 +7,7 @@ edition = "2024"
 axum = "0.8.4"
 axum-server = "0.7.2"
 chain_arbitro = { path = "../lib/chain_arbitro" }
-chains = { path = "../lib/chains" }
+chain_json = { path = "../lib/chain_json" }
 hyper = "1.7.0"
 npm_rs = "1.0.0"
 serde = { workspace = true, features = ["derive"] }

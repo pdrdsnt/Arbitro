@@ -1,11 +1,10 @@
 [package]
-name = "chains_db"
+name = "chain_db"
 version = "0.1.0"
 edition = "2024"
 
 [dependencies]
 alloy = { workspace = true }
 bincode = { workspace = true }
-dexes = { path = "../dexes" }
 sled = "0.34.7"
-sol = { path = "../sol" }
+sol = { workspace = true }

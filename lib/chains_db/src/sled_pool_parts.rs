@@ -2,6 +2,7 @@ use std::collections::BTreeMap;
 
 use alloy::primitives::Address;
 use alloy::primitives::U160;
+use alloy::primitives::U256;
 use alloy::primitives::aliases::I24;
 use alloy::primitives::aliases::U24;
 use alloy::primitives::keccak256;
@@ -9,14 +10,6 @@ use alloy::providers::Provider;
 use alloy::sol_types::SolValue;
 use bincode::Decode;
 use bincode::Encode;
-use dexes::any_pool::AnyPool;
-use dexes::v2_pool::V2Data;
-use dexes::v2_pool::V2Pool;
-use dexes::v3_pool::V3Data;
-use dexes::v3_pool::V3Pool;
-use dexes::v4_pool::V4Data;
-use dexes::v4_pool::V4Pool;
-use dexes::words::TicksBitMap;
 use sol::sol_types::IUniswapV2Pair::IUniswapV2PairInstance;
 use sol::sol_types::PoolKey;
 use sol::sol_types::StateView::StateViewInstance;
@@ -99,129 +92,6 @@ pub enum AnyPoolSled {
         PoolTokens,
     ),
 }
-
-impl AnyPoolSled {
-    pub fn from_pool<P: Provider + Clone>(id: u64, pool: AnyPool<P>) -> Self {
-        match pool {
-            AnyPool::V2(v2_pool) => AnyPoolSled::V2(
-                id,
-                *v2_pool.contract.address(),
-                V2Config {
-                    name: v2_pool.data.name,
-                    fee: v2_pool.data.fee,
-                },
-                V2PoolState {
-                    r0: v2_pool.data.reserves.unwrap().0,
-                    r1: v2_pool.data.reserves.unwrap().0,
-                },
-                PoolTokens {
-                    a: v2_pool.data.token0,
-                    b: v2_pool.data.token1,
-                },
-            ),
-            AnyPool::V3(v3_pool) => {
-                let slot0 = v3_pool.data.slot0;
-                AnyPoolSled::V3(
-                    id,
-                    *v3_pool.contract.address(),
-                    V3Config {
-                        name: None,
-                        fee: v3_pool.data.fee,
-                        tick_spacing: v3_pool.data.tick_spacing,
-                    },
-                    V3PoolState {
-                        tick: if let Some(s) = slot0 { Some(s.1) } else { None },
-                        x96price: if let Some(s) = slot0 { Some(s.0) } else { None },
-                        liquidity: v3_pool.data.liquidity,
-                    },
-                    AnyPoolLiquidityNets {
-                        ticks: v3_pool.data.ticks,
-                    },
-                    PoolTokens {
-                        a: v3_pool.data.token0,
-                        b: v3_pool.data.token0,
-                    },
-                )
-            }
-            AnyPool::V4(v4_pool) => todo!(),
-        }
-    }
-
-    pub fn into_pool<P: Provider + Clone>(self, provider: P) -> Result<AnyPool<P>, ()> {
-        match self {
-            AnyPoolSled::V2(_, address, v2_config, v2_pool_state, tokens) => {
-                Ok(AnyPool::V2(V2Pool {
-                    contract: IUniswapV2PairInstance::new(address, provider),
-                    data: V2Data {
-                        name: v2_config.name,
-                        reserves: Some((v2_pool_state.r0, v2_pool_state.r1)),
-                        fee: v2_config.fee,
-                        token0: tokens.a,
-                        token1: tokens.b,
-                    },
-                }))
-            }
-            AnyPoolSled::V3(_, address, v3_config, v3_pool_state, tokens) => {
-                Ok(AnyPool::V3(V3Pool {
-                    contract: V3PoolInstance::new(address, provider),
-                    data: V3Data {
-                        slot0: Some((
-                            v3_pool_state.x96price.unwrap_or_default(),
-                            v3_pool_state.tick.unwrap_or_default(),
-                            0,
-                            0,
-                            0,
-                            0,
-                            false,
-                        )),
-                        liquidity: v3_pool_state.liquidity,
-                        ticks: BTreeMap::new(),
-                        tick_spacing: v3_config.tick_spacing,
-                        fee: v3_config.fee,
-                        token0: tokens.a,
-                        token1: tokens.b,
-                    },
-                }))
-            }
-            AnyPoolSled::V4(_, address, v4_config, v3_pool_state, tokens) => {
-                let Some(ta) = tokens.a else {
-                    return Err(());
-                };
-
-                let Some(tb) = tokens.a else {
-                    return Err(());
-                };
-
-                let pool_key = PoolKey {
-                    currency0: ta,
-                    currency1: tb,
-                    fee: v4_config.fee,
-                    tickSpacing: v4_config.tick_spacing,
-                    hooks: v4_config.hooks,
-                };
-                let id = keccak256(pool_key.abi_encode());
-
-                Ok(AnyPool::V4(V4Pool {
-                    contract: StateViewInstance::new(address, provider),
-
-                    data: V4Data {
-                        slot0: Some((
-                            v3_pool_state.x96price.unwrap_or_default(),
-                            v3_pool_state.tick.unwrap_or_default(),
-                            U24::ZERO,
-                            U24::ZERO,
-                        )),
-                        liquidity: v3_pool_state.liquidity,
-                        ticks: BTreeMap::new(),
-                        pool_key: pool_key,
-                    },
-                    id: id,
-                }))
-            }
-        }
-    }
-}
-
 #[derive(Decode, Encode, Debug)]
 pub enum AnyPoolConfig {
     V2(V2Config),
@@ -255,8 +125,31 @@ pub struct V4Config {
     pub hooks: Address,
 }
 
+#[derive(Decode, Encode, Debug, PartialEq, Eq, PartialOrd, Ord)]
+pub struct WordPos(#[bincode(with_serde)] I24);
+impl Into<I24> for WordPos {
+    fn into(self) -> I24 {
+        self.0
+    }
+}
+impl From<I24> for WordPos {
+    fn from(value: I24) -> Self {
+        Self(value)
+    }
+}
 #[derive(Decode, Encode, Debug)]
 pub struct AnyPoolLiquidityNets {
+    pub ticks: BTreeMap<WordPos, TicksBitMap>,
+}
+#[derive(Decode, Encode, Debug)]
+pub struct TicksBitMap {
     #[bincode(with_serde)]
-    ticks: BTreeMap<I24, TicksBitMap>,
+    pub bitmap: U256,
+    pub ticks: BTreeMap<WordPos, TickData>,
+}
+
+#[derive(Encode, Decode, Debug)]
+pub struct TickData {
+    #[bincode(with_serde)]
+    pub liquidity_net: Option<i128>,
 }

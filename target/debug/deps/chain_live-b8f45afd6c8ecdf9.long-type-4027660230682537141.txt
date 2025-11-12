@@ -1,0 +1,2 @@
+&(result::Result<ticksReturn, contract::error::Error>, alloy_primitives::signed::int::Signed<24, 1>)
+&(std::result::Result<ticksReturn, alloy::alloy_contract::Error>, alloy_primitives::Signed<24, 1>)

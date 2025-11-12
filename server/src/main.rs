@@ -22,12 +22,6 @@ async fn main() {
 
     let mut live_chains = HashMap::new();
 
-    for (id, chain) in chains.blocking_read().chains {
-        let provider = generate_fallback_provider(chain.http_nodes_urls).unwrap();
-        let arbitro = ChainArbitro::from_chain(chain, provider);
-        live_chains.insert(id, arbitro);
-    }
-
     let app = Router::new()
         .route_service("/", serve_dir)
         .nest_service("/assets", serve_assets)

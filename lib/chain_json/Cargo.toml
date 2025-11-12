@@ -1,0 +1,15 @@
+[package]
+name = "chain_json"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+alloy = { workspace = true }
+alloy-sol-types = { workspace = true }
+anyhow = "1.0.99"
+bincode = { workspace = true }
+chain_db = { workspace = true }
+home = "0.5.11"
+serde = { workspace = true }
+serde_json = { workspace = true }
+sol = { workspace = true }

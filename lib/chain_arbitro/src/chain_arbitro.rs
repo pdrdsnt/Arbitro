@@ -8,6 +8,10 @@ use std::{
 use alloy::{primitives::Address, providers::Provider};
 
 use chains::{chain::Chain, chain_json_model::TokenJsonModel, token::Token};
+use chains_db::{
+    chains_db::ChainsDB,
+    sled_pool_key::{SledPairKey, SledPoolCollection},
+};
 use dexes::{
     any_factory::AnyFactory,
     any_pool::{AnyPool, AnyPoolKey},
@@ -26,16 +30,17 @@ use sol::sol_types::{
 use tokio::io::join;
 
 pub struct ChainArbitro<P: Provider + Clone> {
+    chains_id: u64,
     dexes: Vec<AnyFactory<P>>,
     tokens: HashMap<Address, Token<P>>,
     pools: HashMap<AnyPoolKey, AnyPool<P>>,
     provider: P,
-
     pools_by_tokens: HashMap<Address, Vec<AnyPoolKey>>,
+    db: ChainsDB,
 }
 
 impl<P: Provider + Clone> ChainArbitro<P> {
-    pub fn from_chain(chain: &Chain, provider: P) -> Self {
+    pub fn from_chain(chain: &Chain, provider: P, db: ChainsDB) -> Self {
         let mut dexes: Vec<AnyFactory<P>> = Vec::new();
         let mut tokens: HashMap<Address, Token<P>> = HashMap::new();
 
@@ -67,6 +72,7 @@ impl<P: Provider + Clone> ChainArbitro<P> {
                 chains::chain_json_model::DexJsonModel::V3 { address, fee } => {
                     if let Ok(addr) = Address::from_str(address.as_str()) {
                         let contract = IUniswapV3Factory::new(addr, provider.clone());
+
                         let factory = AnyFactory::V3(V3Factory {
                             name: "lost".to_string(),
                             contract: contract,
@@ -132,17 +138,20 @@ impl<P: Provider + Clone> ChainArbitro<P> {
         }
 
         ChainArbitro {
+            chains_id: chain.id,
             dexes: dexes,
             tokens: tokens,
             provider: provider,
             pools: pools,
             pools_by_tokens: pools_by_token,
+            db,
         }
     }
 
     pub async fn insert_token(&mut self, token: Token<P>) {
         let addr = *token.contract.address();
         self.tokens.insert(addr, token);
+
         let (v2, v3, v4) = self.get_token_pools_calls(addr);
 
         let results = tokio::join!(join_all(v2), join_all(v3), join_all(v4));
@@ -223,8 +232,18 @@ impl<P: Provider + Clone> ChainArbitro<P> {
             .filter_map(|x| if x.0 != &addr { Some(x) } else { None })
             .for_each(|x| pairs.push((*x.0, addr)));
 
-        for dex in self.dexes.iter() {
-            for pair in pairs.iter() {
+        for pair in pairs.iter() {
+            let key = SledPairKey::new(self.chains_id, pair.0, pair.1);
+
+            let my_pools = self
+                .db
+                .get_pools_with_pair(key)
+                .unwrap_or_else(|| SledPoolCollection {
+                    inner: HashMap::new(),
+                })
+                .inner;
+
+            for dex in self.dexes.iter() {
                 match dex {
                     AnyFactory::V2(v2_factory) => {
                         let ppp = v2_factory.search_pool(pair.0, pair.1);

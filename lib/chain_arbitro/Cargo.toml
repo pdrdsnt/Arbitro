@@ -5,10 +5,10 @@ edition = "2024"
 
 [dependencies]
 alloy = { workspace = true }
-arbitro = { path = "../arbitro" }
-chains = { path = "../chains" }
-dexes = { path = "../dexes" }
+chain_db = { workspace = true }
+chain_json = { workspace = true }
+chain_live = { workspace = true }
 futures = "0.3.31"
-sol = { path = "../sol" }
+sol = { workspace = true }
 tokio = "1.48.0"
-v3 = { path = "../v3" }
+v3 = { workspace = true }
