@@ -8,11 +8,12 @@ use alloy_primitives::{
 use alloy_provider::Provider;
 use alloy_sol_types::SolValue;
 use chain_db::{
-    sled_pool_key::{AddId, SledPoolKey},
-    sled_pool_parts::{
-        AnyPoolLiquidityNets, AnyPoolSled, PoolTokens, PoolWords, V2Config, V2PoolState, V3Config,
-        V3PoolState,
-    },
+    p_any::AnyPoolSled,
+    p_config::{V2Config, V3Config, V4Config},
+    p_key::{AddId, SledPoolKey},
+    p_state::{V2State, V3State},
+    p_ticks::PoolWords,
+    p_tokens::Tokens,
 };
 use chain_json::chain_json_model::PoolJsonModel;
 use serde::{Deserialize, Serialize};
@@ -113,7 +114,7 @@ impl<P: Provider + Clone> AnyPool<P> {
                         token1: if let Ok(t) = t1 { Some(t) } else { None },
                         slot0: None,
                         liquidity: None,
-                        ticks: BTreeMap::new(),
+                        ticks: PoolWords::default(),
                         tick_spacing: None,
                     };
                     let contract = V3PoolInstance::new(f_addr, provider);
@@ -184,14 +185,12 @@ impl<P: Provider + Clone> AnyPool<P> {
                 V2Config {
                     name: v2_pool.data.name,
                     fee: v2_pool.data.fee,
+                    token0: v2_pool.data.token0,
+                    token1: v2_pool.data.token1,
                 },
-                V2PoolState {
-                    r0: v2_pool.data.reserves.unwrap().0,
-                    r1: v2_pool.data.reserves.unwrap().0,
-                },
-                PoolTokens {
-                    a: v2_pool.data.token0,
-                    b: v2_pool.data.token1,
+                V2State {
+                    r0: v2_pool.data.reserves.unwrap_or_else(|| (0_u128, 0_u128)).0,
+                    r1: v2_pool.data.reserves.unwrap_or_else(|| (0_u128, 0_u128)).1,
                 },
             ),
             AnyPool::V3(v3_pool) => {
@@ -203,38 +202,56 @@ impl<P: Provider + Clone> AnyPool<P> {
                         name: None,
                         fee: v3_pool.data.fee,
                         tick_spacing: v3_pool.data.tick_spacing,
+
+                        token0: v3_pool.data.token0,
+                        token1: v3_pool.data.token0,
                     },
-                    V3PoolState {
+                    V3State {
                         tick: if let Some(s) = slot0 { Some(s.1) } else { None },
                         x96price: if let Some(s) = slot0 { Some(s.0) } else { None },
                         liquidity: v3_pool.data.liquidity,
                     },
-                    AnyPoolLiquidityNets {
-                        ticks: v3_pool.data.ticks,
-                    },
-                    PoolTokens {
-                        a: v3_pool.data.token0,
-                        b: v3_pool.data.token0,
+                    PoolWords {
+                        words: v3_pool.data.ticks,
                     },
                 )
             }
-            AnyPool::V4(v4_pool) => todo!(),
+            AnyPool::V4(v4_pool) => {
+                let slot0 = v4_pool.data.slot0;
+                AnyPoolSled::V4(
+                    id,
+                    *v4_pool.contract.address(),
+                    V4Config {
+                        fee: v4_pool.data.pool_key.fee,
+                        tick_spacing: v4_pool.data.pool_key.tickSpacing,
+                        hooks: v4_pool.data.pool_key.hooks,
+                        token0: v4_pool.data.pool_key.currency0.into(),
+                        token1: v4_pool.data.pool_key.currency1.into(),
+                    },
+                    V3State {
+                        tick: if let Some(s) = slot0 { Some(s.1) } else { None },
+                        x96price: if let Some(s) = slot0 { Some(s.0) } else { None },
+                        liquidity: v4_pool.data.liquidity,
+                    },
+                    v4_pool.data.ticks,
+                )
+            }
         }
     }
 
     pub fn from_sled_pool(pool: AnyPoolSled, provider: P) -> Result<Self, ()> {
         match pool {
-            AnyPoolSled::V2(_, address, v2_config, v2_pool_state, tokens) => Ok(Self::V2(V2Pool {
+            AnyPoolSled::V2(_, address, v2_config, v2_pool_state) => Ok(Self::V2(V2Pool {
                 contract: IUniswapV2PairInstance::new(address, provider),
                 data: V2Data {
                     name: v2_config.name,
                     reserves: Some((v2_pool_state.r0, v2_pool_state.r1)),
                     fee: v2_config.fee,
-                    token0: tokens.a,
-                    token1: tokens.b,
+                    token0: v2_config.token0,
+                    token1: v2_config.token1,
                 },
             })),
-            AnyPoolSled::V3(_, address, v3_config, v3_pool_state, positions, tokens) => {
+            AnyPoolSled::V3(_, address, v3_config, v3_pool_state, positions) => {
                 Ok(AnyPool::V3(V3Pool {
                     contract: V3PoolInstance::new(address, provider),
                     data: V3Data {
@@ -251,19 +268,14 @@ impl<P: Provider + Clone> AnyPool<P> {
                         ticks: BTreeMap::new(),
                         tick_spacing: v3_config.tick_spacing,
                         fee: v3_config.fee,
-                        token0: tokens.a,
-                        token1: tokens.b,
+                        token0: v3_config.token0,
+                        token1: v3_config.token1,
                     },
                 }))
             }
-            AnyPoolSled::V4(_, address, v4_config, v3_pool_state, positions, tokens) => {
-                let Some(ta) = tokens.a else {
-                    return Err(());
-                };
-
-                let Some(tb) = tokens.a else {
-                    return Err(());
-                };
+            AnyPoolSled::V4(_, address, v4_config, v3_pool_state, positions) => {
+                let ta = v4_config.token0;
+                let tb = v4_config.token1;
 
                 let pool_key = PoolKey {
                     currency0: ta,
@@ -285,7 +297,7 @@ impl<P: Provider + Clone> AnyPool<P> {
                             U24::ZERO,
                         )),
                         liquidity: v3_pool_state.liquidity,
-                        ticks: BTreeMap::new(),
+                        ticks: positions,
                         pool_key: pool_key,
                     },
                     id: id,

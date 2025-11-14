@@ -1,7 +1,7 @@
 use std::collections::BTreeMap;
 
 use alloy_primitives::aliases::I24;
-use chain_db::sled_pool_parts::{TickData, TicksBitMap, WordPos};
+use chain_db::sled_pool_parts::{II24, TickData, TicksBitMap};
 use futures::future::join_all;
 use v3::v3_base::bitmap_math;
 
@@ -11,10 +11,7 @@ pub trait CLPool {
         word: i16,
     ) -> Result<alloy_primitives::Uint<256, 4>, alloy::contract::Error>;
 
-    async fn tick_call(
-        &self,
-        tick: I24,
-    ) -> Result<sol::sol_types::V3Pool::ticksReturn, alloy::contract::Error>;
+    async fn tick_call(&self, tick: I24) -> Result<i128, alloy::contract::Error>;
 
     async fn get_word_ticks(&self, word: i16, tick_spacing: I24) -> Option<TicksBitMap> {
         if let Ok(bitmap) = self.bitmap_call(word).await {
@@ -28,14 +25,14 @@ pub trait CLPool {
         None
     }
 
-    async fn fetch_ticks(&self, ticks: Vec<I24>) -> BTreeMap<WordPos, TickData> {
+    async fn fetch_ticks(&self, ticks: Vec<I24>) -> BTreeMap<II24, TickData> {
         let mut ticks_call = Vec::with_capacity(ticks.len());
 
         for tick in ticks.into_iter() {
             ticks_call.push(async move { (self.tick_call(tick).await, tick) });
         }
 
-        let mut ticks: BTreeMap<WordPos, TickData> = BTreeMap::new();
+        let mut ticks: BTreeMap<II24, TickData> = BTreeMap::new();
 
         join_all(ticks_call)
             .await
@@ -45,7 +42,7 @@ pub trait CLPool {
                     Some(ticks.insert(
                         i.into(),
                         TickData {
-                            liquidity_net: Some(tick_data.liquidityNet),
+                            liquidity_net: Some(tick_data),
                         },
                     ));
                 }

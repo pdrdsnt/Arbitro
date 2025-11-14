@@ -5,7 +5,7 @@ use alloy_primitives::{
     aliases::{I24, U24},
 };
 use alloy_provider::Provider;
-use chain_db::sled_pool_parts::{PoolWords, TickData, TicksBitMap, WordPos};
+use chain_db::p_ticks::PoolWords;
 use futures::future::join_all;
 use serde::{Deserialize, Serialize};
 use sol::sol_types::V3Pool::V3PoolInstance;
@@ -119,11 +119,9 @@ impl<P: Provider + Clone> CLPool for V3Pool<P> {
         self.contract.tickBitmap(word).call().await
     }
 
-    async fn tick_call(
-        &self,
-        tick: I24,
-    ) -> Result<sol::sol_types::V3Pool::ticksReturn, alloy::contract::Error> {
-        let co = self.contract.clone();
-        co.ticks(tick).call().into_future().await
+    async fn tick_call(&self, tick: I24) -> Result<i128, alloy::contract::Error> {
+        let c = self.contract.clone();
+        let v3_res = c.ticks(tick).call().into_future().await?;
+        Ok(v3_res.liquidityNet)
     }
 }

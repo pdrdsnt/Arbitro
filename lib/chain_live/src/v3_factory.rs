@@ -5,7 +5,7 @@ use alloy_primitives::{
     aliases::{I24, U24},
 };
 use alloy_provider::Provider;
-use chain_db::sled_pool_parts::PoolWords;
+use chain_db::{p_ticks::PoolWords, p_tokens::Tokens};
 use futures::future::join_all;
 use sol::sol_types::IUniswapV3Factory::IUniswapV3FactoryInstance;
 

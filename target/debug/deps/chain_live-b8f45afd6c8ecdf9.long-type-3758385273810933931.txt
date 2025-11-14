@@ -1,0 +1,5 @@
+(ruint::Uint<160, 3>, alloy_primitives::signed::int::Signed<24, 1>, ruint::Uint<24, 1>, ruint::Uint<24, 1>)
+option::Option<(ruint::Uint<160, 3>, alloy_primitives::signed::int::Signed<24, 1>, ruint::Uint<24, 1>, ruint::Uint<24, 1>)>
+(alloy_primitives::Uint<160, 3>, alloy_primitives::Signed<24, 1>, alloy_primitives::Uint<24, 1>, alloy_primitives::Uint<24, 1>): From<std::option::Option<(alloy_primitives::Uint<160, 3>, alloy_primitives::Signed<24, 1>, alloy_primitives::Uint<24, 1>, alloy_primitives::Uint<24, 1>)>>
+(alloy_primitives::Uint<160, 3>, alloy_primitives::Signed<24, 1>, alloy_primitives::Uint<24, 1>, alloy_primitives::Uint<24, 1>)
+std::option::Option<(alloy_primitives::Uint<160, 3>, alloy_primitives::Signed<24, 1>, alloy_primitives::Uint<24, 1>, alloy_primitives::Uint<24, 1>)>

@@ -5,7 +5,10 @@ impl :: bincode :: Encode for V2Config
     :: error :: EncodeError >
     {
         :: bincode :: Encode :: encode(&self.name, encoder) ?; :: bincode ::
-        Encode :: encode(&::bincode::serde::Compat(&self.fee), encoder) ?;
-        core :: result :: Result :: Ok(())
+        Encode :: encode(&::bincode::serde::Compat(&self.fee), encoder) ?; ::
+        bincode :: Encode ::
+        encode(&::bincode::serde::Compat(&self.token0), encoder) ?; :: bincode
+        :: Encode :: encode(&::bincode::serde::Compat(&self.token1), encoder)
+        ?; core :: result :: Result :: Ok(())
     }
 }

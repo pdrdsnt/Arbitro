@@ -4,18 +4,23 @@ use bincode::{Decode, Encode, config::Configuration, de::BorrowDecoder};
 use sled::{Db, Tree};
 
 use crate::{
-    sled_pool_key::{SledPairKey, SledPoolCollection, SledPoolKey},
-    sled_pool_parts::{AnyPoolConfig, AnyPoolLiquidityNets, AnyPoolState, PoolTokens},
+    p_config::AnyPoolConfig,
+    p_key::{SledPairKey, SledPoolCollection, SledPoolKey},
+    p_state::AnyPoolState,
+    p_ticks::PoolWords,
+    p_tokens::Tokens,
 };
 
+#[derive(Debug)]
 pub struct ChainsDB {
     pool_keys: HashSet<SledPoolKey>,
-
     config_by_pool: Tree,
+    pool_by_config: Tree,
     state_by_pool: Tree,
     tokens_by_pool: Tree,
     ticks_by_pool: Tree,
     pool_by_pair: Tree,
+
     db: Db,
 }
 
@@ -23,15 +28,16 @@ impl ChainsDB {
     pub fn get_pool_state(&self, key: &SledPoolKey) -> Result<AnyPoolState, sled::Error> {
         self.get_thing(&self.state_by_pool, key)
     }
-    pub fn get_pool_tokens(&self, key: &SledPoolKey) -> Result<PoolTokens, sled::Error> {
+    pub fn get_pool_tokens(&self, key: &SledPoolKey) -> Result<Tokens, sled::Error> {
         self.get_thing(&self.tokens_by_pool, key)
     }
     pub fn get_pool_config(&self, key: &SledPoolKey) -> Result<AnyPoolConfig, sled::Error> {
         self.get_thing(&self.state_by_pool, key)
     }
-    pub fn get_pool_ticks(&self, key: &SledPoolKey) -> Result<AnyPoolLiquidityNets, sled::Error> {
+    pub fn get_pool_ticks(&self, key: &SledPoolKey) -> Result<PoolWords, sled::Error> {
         self.get_thing(&self.state_by_pool, key)
     }
+
     pub fn get_pools_with_pair(
         &self,
         key: &SledPairKey,
@@ -64,21 +70,23 @@ impl ChainsDB {
         &self,
         key: &SledPoolKey,
         state: &AnyPoolConfig,
-    ) -> Result<Option<sled::IVec>, sled::Error> {
-        self.save_thing(&self.state_by_pool, key, state)
+    ) -> Result<(Option<sled::IVec>, Option<sled::IVec>), sled::Error> {
+        let last = self.save_thing(&self.state_by_pool, key, state)?;
+        let last_k = self.save_thing(&self.pool_by_config, state, key)?;
+        Ok((last, last_k))
     }
 
     pub fn save_pool_tokens(
         &self,
         key: &SledPoolKey,
-        state: &PoolTokens,
+        state: &Tokens,
     ) -> Result<Option<sled::IVec>, sled::Error> {
         self.save_thing(&self.state_by_pool, key, state)
     }
 
     pub fn save_pool_ticks(
         &self,
-        key: &AnyPoolLiquidityNets,
+        key: &SledPoolKey,
         state: &AnyPoolState,
     ) -> Result<Option<sled::IVec>, sled::Error> {
         self.save_thing(&self.state_by_pool, key, state)
@@ -115,6 +123,10 @@ impl TryFrom<PathBuf> for ChainsDB {
             return Err(());
         };
 
+        let Ok(p_by_config) = db.open_tree("pool_by_config") else {
+            return Err(());
+        };
+
         Ok(Self {
             db,
             state_by_pool: p_states,
@@ -123,9 +135,11 @@ impl TryFrom<PathBuf> for ChainsDB {
             config_by_pool: p_configs,
             pool_by_pair: p_by_pairs,
             pool_keys: HashSet::new(),
+            pool_by_config: p_by_config,
         })
     }
 }
+
 impl SledBincodeDb for ChainsDB {}
 
 pub trait SledBincodeDb {

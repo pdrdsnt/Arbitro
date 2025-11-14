@@ -12,6 +12,10 @@ impl < __Context > :: bincode :: Decode < __Context > for V3Config
             ::bincode::Decode::<__Context>>::decode(decoder)?).0, tick_spacing
             :
             (<::bincode::serde::Compat<_> as
+            ::bincode::Decode::<__Context>>::decode(decoder)?).0, token0 :
+            (<::bincode::serde::Compat<_> as
+            ::bincode::Decode::<__Context>>::decode(decoder)?).0, token1 :
+            (<::bincode::serde::Compat<_> as
             ::bincode::Decode::<__Context>>::decode(decoder)?).0,
         })
     }
@@ -30,6 +34,12 @@ for V3Config
             (<::bincode::serde::BorrowCompat<_> as
             ::bincode::BorrowDecode::<'_,
             __Context>>::borrow_decode(decoder)?).0, tick_spacing :
+            (<::bincode::serde::BorrowCompat<_> as
+            ::bincode::BorrowDecode::<'_,
+            __Context>>::borrow_decode(decoder)?).0, token0 :
+            (<::bincode::serde::BorrowCompat<_> as
+            ::bincode::BorrowDecode::<'_,
+            __Context>>::borrow_decode(decoder)?).0, token1 :
             (<::bincode::serde::BorrowCompat<_> as
             ::bincode::BorrowDecode::<'_,
             __Context>>::borrow_decode(decoder)?).0,

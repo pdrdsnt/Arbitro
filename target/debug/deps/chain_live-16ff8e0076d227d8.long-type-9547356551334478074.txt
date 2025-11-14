@@ -1,0 +1,2 @@
+(Vec<alloy_primitives::signed::int::Signed<24, 1>>, Vec<result::Result<i128, contract::error::Error>>)
+(Vec<alloy_primitives::Signed<24, 1>>, Vec<std::result::Result<i128, alloy::alloy_contract::Error>>)

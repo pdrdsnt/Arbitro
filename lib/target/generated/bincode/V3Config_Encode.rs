@@ -7,7 +7,10 @@ impl :: bincode :: Encode for V3Config
         :: bincode :: Encode :: encode(&self.name, encoder) ?; :: bincode ::
         Encode :: encode(&::bincode::serde::Compat(&self.fee), encoder) ?; ::
         bincode :: Encode ::
-        encode(&::bincode::serde::Compat(&self.tick_spacing), encoder) ?; core
-        :: result :: Result :: Ok(())
+        encode(&::bincode::serde::Compat(&self.tick_spacing), encoder) ?; ::
+        bincode :: Encode ::
+        encode(&::bincode::serde::Compat(&self.token0), encoder) ?; :: bincode
+        :: Encode :: encode(&::bincode::serde::Compat(&self.token1), encoder)
+        ?; core :: result :: Result :: Ok(())
     }
 }

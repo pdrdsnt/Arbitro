@@ -9,7 +9,10 @@ impl :: bincode :: Encode for V4Config
         Encode ::
         encode(&::bincode::serde::Compat(&self.tick_spacing), encoder) ?; ::
         bincode :: Encode ::
-        encode(&::bincode::serde::Compat(&self.hooks), encoder) ?; core ::
+        encode(&::bincode::serde::Compat(&self.hooks), encoder) ?; :: bincode
+        :: Encode :: encode(&::bincode::serde::Compat(&self.token0), encoder)
+        ?; :: bincode :: Encode ::
+        encode(&::bincode::serde::Compat(&self.token1), encoder) ?; core ::
         result :: Result :: Ok(())
     }
 }

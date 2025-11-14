@@ -246,15 +246,15 @@ impl<P: Provider + Clone> ChainArbitro<P> {
             for dex in self.dexes.iter() {
                 match dex {
                     AnyFactory::V2(v2_factory) => {
-                        let ppp = v2_factory.search_pool(pair.0, pair.1);
+                        let ppp = v2_factory.search_pool(pair.0, pair.1, my_pools);
                         v2_calls.push(ppp);
                     }
                     AnyFactory::V3(v3_factory) => {
-                        let ppp = v3_factory.search_pools(pair.0, pair.1);
+                        let ppp = v3_factory.search_pools(pair.0, pair.1, my_pools);
                         v3_calls.push(ppp);
                     }
                     AnyFactory::V4(v4_factory) => {
-                        let ppp = v4_factory.search_pools(pair.0, pair.1);
+                        let ppp = v4_factory.search_pools(pair.0, pair.1, my_pools);
                         v4_calls.push(ppp);
                     }
                 }

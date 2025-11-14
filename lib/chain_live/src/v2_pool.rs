@@ -1,6 +1,6 @@
 use alloy_primitives::{Address, aliases::U24};
 use alloy_provider::Provider;
-use chain_db::sled_pool_parts::PoolTokens;
+use chain_db::p_tokens::Tokens;
 use serde::{Deserialize, Serialize};
 use sol::sol_types::IUniswapV2Pair::IUniswapV2PairInstance;
 
@@ -14,7 +14,7 @@ pub struct V2Data {
 }
 
 impl V2Data {
-    pub async fn new_with(fee: U24, pair: PoolTokens) -> V2Data {
+    pub async fn new_with(fee: U24, pair: Tokens) -> V2Data {
         Self {
             name: None,
             reserves: None,
