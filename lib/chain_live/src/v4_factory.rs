@@ -36,7 +36,7 @@ impl<P: Provider + Clone> V4Factory<P> {
         &self,
         token_a: Address,
         token_b: Address,
-        found: HashSet<(V4Config, Tokens)>,
+        found: HashSet<V4Config>,
     ) -> Vec<V4Pool<P>> {
         let [a, b] = [token_a, token_b];
 

@@ -22,7 +22,7 @@ use crate::v3_pool::{V3Data, V3Pool};
 pub struct V3Factory<P: Provider + Clone> {
     pub name: String,
     pub contract: IUniswapV3FactoryInstance<P>,
-    tried: RefCell<HashSet<AnyPoolConfig>>,
+    tried: RefCell<HashSet<V3Config>>,
 }
 
 impl<P: Provider + Clone> V3Factory<P> {
@@ -50,6 +50,18 @@ impl<P: Provider + Clone> V3Factory<P> {
                 ticks: PoolWords::default(),
             };
 
+            let config = V3Config {
+                name: None,
+                fee: p.fee,
+                tick_spacing: p.tick_spacing,
+                token0: p.token0,
+                token1: p.token1,
+            };
+
+            if self.tried.borrow().contains(&config) {
+                continue;
+            }
+
             fut.push(async move {
                 (
                     self.contract.getPool(a, b, U24::from(fee)).call().await,
@@ -74,13 +86,13 @@ impl<P: Provider + Clone> V3Factory<P> {
 
                 pools.push(new_pool);
             } else {
-                let pool_cfg = AnyPoolConfig::V3(V3Config {
+                let pool_cfg = V3Config {
                     name: None,
                     fee: res.1.fee,
                     tick_spacing: res.1.tick_spacing,
                     token0: res.1.token0,
                     token1: res.1.token1,
-                });
+                };
 
                 self.tried.borrow_mut().insert(pool_cfg);
             }
