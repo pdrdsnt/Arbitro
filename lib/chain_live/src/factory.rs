@@ -1,6 +1,6 @@
 use alloy_primitives::map::HashSet;
 use alloy_provider::Provider;
-use chain_db::sled_pool_parts::{AnyPoolConfig, PoolTokens};
+use chain_db::{p_config::AnyPoolConfig, p_tokens::Tokens};
 use sol::sol_types::{IUniswapV2Pair::IUniswapV2PairInstance, V3Pool::V3PoolInstance};
 
 use crate::{
@@ -9,9 +9,6 @@ use crate::{
 };
 
 pub trait Factory<P: Provider + Clone> {
-    async fn flatout(
-        &self,
-        pairs: &Vec<PoolTokens>,
-        out: HashSet<AnyPoolConfig>,
-    ) -> Vec<AnyPoolConfig>;
+    async fn flatout(&self, pairs: &Vec<Tokens>, out: HashSet<AnyPoolConfig>)
+    -> Vec<AnyPoolConfig>;
 }

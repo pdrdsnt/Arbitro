@@ -1,25 +1,32 @@
-use std::collections::{BTreeMap, HashSet};
+use std::{
+    cell::RefCell,
+    collections::{BTreeMap, HashSet},
+};
 
 use alloy_primitives::{
     Address,
     aliases::{I24, U24},
 };
 use alloy_provider::Provider;
-use chain_db::{p_ticks::PoolWords, p_tokens::Tokens};
+use chain_db::{
+    p_config::{AnyPoolConfig, V3Config},
+    p_ticks::PoolWords,
+    p_tokens::Tokens,
+};
 use futures::future::join_all;
-use sol::sol_types::IUniswapV3Factory::IUniswapV3FactoryInstance;
+use sol::sol_types::{IUniswapV3Factory::IUniswapV3FactoryInstance, V3Pool::V3PoolInstance};
 
-use crate::v3_pool::V3Data;
+use crate::v3_pool::{V3Data, V3Pool};
 
 #[derive(Debug)]
 pub struct V3Factory<P: Provider + Clone> {
     pub name: String,
     pub contract: IUniswapV3FactoryInstance<P>,
+    tried: RefCell<HashSet<AnyPoolConfig>>,
 }
-// search for all possible pools for tokes
-// order does not matter
+
 impl<P: Provider + Clone> V3Factory<P> {
-    pub async fn search_pools(&self, token_a: Address, token_b: Address) -> Vec<(Address, V3Data)> {
+    pub async fn search_pools(&self, token_a: Address, token_b: Address) -> Vec<V3Pool<P>> {
         let [a, b] = [token_a, token_b];
 
         let mut pools = Vec::new();
@@ -31,7 +38,7 @@ impl<P: Provider + Clone> V3Factory<P> {
         for idx in 0..fees.len() {
             let fee = U24::from(fees[idx]);
             let ts = I24::try_from(tksp[idx]).unwrap();
-            let _key = &V3Key { 0: (a, b, fee) };
+            let _key = V3Key { 0: (a, b, fee) };
 
             let mut p = V3Data {
                 fee: Some(fee),
@@ -43,7 +50,13 @@ impl<P: Provider + Clone> V3Factory<P> {
                 ticks: PoolWords::default(),
             };
 
-            fut.push(async move { (self.contract.getPool(a, b, U24::from(fee)).call().await, p) });
+            fut.push(async move {
+                (
+                    self.contract.getPool(a, b, U24::from(fee)).call().await,
+                    p,
+                    _key,
+                )
+            });
         }
 
         let results = join_all(fut).await;
@@ -54,7 +67,22 @@ impl<P: Provider + Clone> V3Factory<P> {
                     continue;
                 }
 
-                pools.push((addr, res.1));
+                let new_pool = V3Pool::new(
+                    V3PoolInstance::new(addr, self.contract.provider().clone()),
+                    res.1,
+                );
+
+                pools.push(new_pool);
+            } else {
+                let pool_cfg = AnyPoolConfig::V3(V3Config {
+                    name: None,
+                    fee: res.1.fee,
+                    tick_spacing: res.1.tick_spacing,
+                    token0: res.1.token0,
+                    token1: res.1.token1,
+                });
+
+                self.tried.borrow_mut().insert(pool_cfg);
             }
         }
 

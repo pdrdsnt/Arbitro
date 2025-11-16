@@ -1,7 +1,7 @@
 use std::{collections::BTreeMap, str::FromStr};
 
 use alloy_primitives::{
-    Address, B256, B512,
+    Address, B256, B512, U160,
     aliases::{I24, U24},
     keccak256,
 };
@@ -18,8 +18,10 @@ use chain_db::{
 use chain_json::chain_json_model::PoolJsonModel;
 use serde::{Deserialize, Serialize};
 use sol::sol_types::{
-    IUniswapV2Pair::IUniswapV2PairInstance, PoolKey, StateView::StateViewInstance,
-    V3Pool::V3PoolInstance,
+    IUniswapV2Pair::IUniswapV2PairInstance,
+    PoolKey,
+    StateView::StateViewInstance,
+    V3Pool::{V3PoolInstance, slot0Return},
 };
 
 use crate::{
@@ -183,7 +185,7 @@ impl<P: Provider + Clone> AnyPool<P> {
                 id,
                 *v2_pool.contract.address(),
                 V2Config {
-                    name: v2_pool.data.name,
+                    name: v2_pool.data.name.clone(),
                     fee: v2_pool.data.fee,
                     token0: v2_pool.data.token0,
                     token1: v2_pool.data.token1,
@@ -194,7 +196,7 @@ impl<P: Provider + Clone> AnyPool<P> {
                 },
             ),
             AnyPool::V3(v3_pool) => {
-                let slot0 = v3_pool.data.slot0;
+                let slot0 = &v3_pool.data.slot0;
                 AnyPoolSled::V3(
                     id,
                     *v3_pool.contract.address(),
@@ -207,13 +209,19 @@ impl<P: Provider + Clone> AnyPool<P> {
                         token1: v3_pool.data.token0,
                     },
                     V3State {
-                        tick: if let Some(s) = slot0 { Some(s.1) } else { None },
-                        x96price: if let Some(s) = slot0 { Some(s.0) } else { None },
+                        tick: if let Some(s) = slot0 {
+                            Some(s.tick)
+                        } else {
+                            None
+                        },
+                        x96price: if let Some(s) = slot0 {
+                            Some(s.sqrtPriceX96)
+                        } else {
+                            None
+                        },
                         liquidity: v3_pool.data.liquidity,
                     },
-                    PoolWords {
-                        words: v3_pool.data.ticks,
-                    },
+                    v3_pool.data.ticks.clone(),
                 )
             }
             AnyPool::V4(v4_pool) => {
@@ -233,7 +241,7 @@ impl<P: Provider + Clone> AnyPool<P> {
                         x96price: if let Some(s) = slot0 { Some(s.0) } else { None },
                         liquidity: v4_pool.data.liquidity,
                     },
-                    v4_pool.data.ticks,
+                    v4_pool.data.ticks.clone(),
                 )
             }
         }
@@ -255,17 +263,17 @@ impl<P: Provider + Clone> AnyPool<P> {
                 Ok(AnyPool::V3(V3Pool {
                     contract: V3PoolInstance::new(address, provider),
                     data: V3Data {
-                        slot0: Some((
-                            v3_pool_state.x96price.unwrap_or_default(),
-                            v3_pool_state.tick.unwrap_or_default(),
-                            0,
-                            0,
-                            0,
-                            0,
-                            false,
-                        )),
+                        slot0: Some(slot0Return {
+                            sqrtPriceX96: v3_pool_state.x96price.unwrap_or_else(|| U160::ZERO),
+                            tick: v3_pool_state.tick.unwrap_or_else(|| I24::ZERO),
+                            observationIndex: 0,
+                            observationCardinality: 0,
+                            observationCardinalityNext: 0,
+                            feeProtocol: 0,
+                            unlocked: true,
+                        }),
                         liquidity: v3_pool_state.liquidity,
-                        ticks: BTreeMap::new(),
+                        ticks: positions,
                         tick_spacing: v3_config.tick_spacing,
                         fee: v3_config.fee,
                         token0: v3_config.token0,

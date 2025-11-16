@@ -1,5 +1,3 @@
-use crate::Node;
-
 #[derive(Clone)]
 pub struct Edge {
     pub a: u128,

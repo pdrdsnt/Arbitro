@@ -1,0 +1,1 @@
+alloy_primitives::Uint<160, 3>: std::convert::From<std::option::Option<alloy_primitives::Uint<160, 3>>>

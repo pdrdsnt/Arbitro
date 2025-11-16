@@ -1,6 +1,7 @@
 use std::{
     collections::{BTreeMap, HashMap, HashSet},
     ops::Add,
+    path::PathBuf,
     rc::Rc,
     str::FromStr,
 };
@@ -36,12 +37,13 @@ pub struct ChainArbitro<P: Provider + Clone> {
     pools: HashMap<AnyPoolKey, AnyPool<P>>,
     provider: P,
     pools_by_tokens: HashMap<Address, Vec<AnyPoolKey>>,
-    db: ChainsDB,
+    db: &ChainsDB,
 }
 
 impl<P: Provider + Clone> ChainArbitro<P> {
     pub fn from_chain(chain: &Chain, provider: P, db: ChainsDB) -> Self {
         let mut dexes: Vec<AnyFactory<P>> = Vec::new();
+
         let mut tokens: HashMap<Address, Token<P>> = HashMap::new();
 
         for c in &chain.tokens {

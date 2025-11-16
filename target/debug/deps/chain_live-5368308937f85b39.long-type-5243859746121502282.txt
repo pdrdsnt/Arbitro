@@ -1,0 +1,1 @@
+alloy_primitives::Signed<24, 1>: std::convert::From<std::option::Option<alloy_primitives::Signed<24, 1>>>

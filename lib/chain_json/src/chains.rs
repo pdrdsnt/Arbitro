@@ -1,4 +1,6 @@
-use std::{collections::BTreeMap, env::home_dir};
+use std::{collections::BTreeMap, env::home_dir, path::PathBuf, str::FromStr};
+
+use chain_db::chains_db::ChainsDB;
 
 use crate::{
     chain::Chain,
@@ -21,6 +23,7 @@ impl Default for Chains {
                     println!("chains created from config chains");
                     chains
                 }
+
                 Err(err) => {
                     panic!("deserialization error {}", err)
                 }

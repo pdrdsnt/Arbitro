@@ -13,6 +13,7 @@ use alloy::{
 use crate::chain_json_model::{
     ChainDataJsonModel, DexJsonModel, JsonPoolKey, PoolJsonModel, TokenJsonModel,
 };
+
 #[derive(Debug)]
 pub struct Chain {
     pub id: u64,

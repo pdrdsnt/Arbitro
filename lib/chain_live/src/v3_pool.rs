@@ -1,23 +1,23 @@
 use std::collections::BTreeMap;
 
 use alloy_primitives::{
-    Address, U160, U256,
+    Address,
     aliases::{I24, U24},
 };
 use alloy_provider::Provider;
-use chain_db::p_ticks::PoolWords;
+use chain_db::{
+    p_config::V3Config,
+    p_ticks::{II24, PoolWords, TickData, TicksBitMap},
+};
 use futures::future::join_all;
-use serde::{Deserialize, Serialize};
-use sol::sol_types::V3Pool::V3PoolInstance;
+use sol::sol_types::V3Pool::{V3PoolInstance, slot0Return};
 use v3::v3_base::bitmap_math;
 
 use crate::clpool::CLPool;
 
-type Slot0tuple = (U160, I24, u16, u16, u16, u8, bool);
-
 #[derive(Clone)]
 pub struct V3Data {
-    pub slot0: Option<Slot0tuple>,
+    pub slot0: Option<slot0Return>,
     pub liquidity: Option<u128>,
     pub ticks: PoolWords,
     pub tick_spacing: Option<I24>,
@@ -34,66 +34,56 @@ impl<P: Provider + Clone> V3Pool<P> {
     pub fn new(contract: V3PoolInstance<P>, data: V3Data) -> Self {
         Self { contract, data }
     }
+    pub async fn sync_slot0(&mut self) -> Result<slot0Return, alloy::contract::Error> {
+        let slot = self.contract.slot0().call().await?;
+        self.data.slot0 = Some(slot.clone());
+        Ok(slot)
+    }
 
-    pub async fn try_fill_pool_rpc(mut self, contract: V3PoolInstance<P>) -> Self {
-        if self.data.slot0.is_none() {
-            if let Ok(slot) = contract.slot0().call().await {
-                self.data.slot0 = Some((
-                    slot.sqrtPriceX96,
-                    slot.tick,
-                    slot.observationIndex,
-                    slot.observationCardinality,
-                    slot.observationCardinalityNext,
-                    slot.feeProtocol,
-                    slot.unlocked,
-                ));
-            }
+    pub async fn sync_liquidity(&mut self) -> Result<u128, alloy::contract::Error> {
+        let liq = self.contract.liquidity().call().await?;
+        self.data.liquidity = Some(liq);
+        Ok(liq)
+    }
+
+    pub async fn sync_ticks(&mut self) -> Result<PoolWords, alloy::contract::Error> {
+        let Some(s0) = self.data.slot0.clone() else {
+            return Err(alloy::contract::Error::UnknownFunction("aaa".to_string()));
+        };
+
+        let word_pos = bitmap_math::get_pos_from_tick(s0.tick, self.data.tick_spacing.unwrap());
+
+        let bm = self.bitmap_call(word_pos).await?;
+
+        let ticks_from_bitmap =
+            bitmap_math::extract_ticks_from_bitmap(bm, word_pos, self.data.tick_spacing.unwrap());
+
+        let mut futs = Vec::new();
+        for tick in ticks_from_bitmap.iter() {
+            futs.push(self.tick_call(*tick));
         }
 
-        if self.data.liquidity.is_none() {
-            if let Ok(liq) = contract.liquidity().call().await {
-                self.data.liquidity = Some(liq);
-            }
-        }
-        if self.data.fee.is_none() {
-            if let Ok(fee) = contract.fee().call().await {
-                self.data.fee = Some(fee);
-            }
-        }
+        let ticks_data: Vec<Result<i128, alloy::contract::Error>> = join_all(futs).await;
+        let mut ticks_map = BTreeMap::new();
 
-        if self.data.tick_spacing.is_none() {
-            if let Ok(ts) = contract.tickSpacing().call().await {
-                self.data.tick_spacing = Some(ts);
-            }
+        for (t, d) in ticks_from_bitmap.into_iter().zip(ticks_data.into_iter()) {
+            let tk: II24 = t.into();
+            let dt = TickData {
+                liquidity_net: d.ok(),
+            };
+
+            ticks_map.insert(tk, dt);
         }
 
-        if self.data.token0.is_none() {
-            if let Ok(t) = contract.token0().call().await {
-                self.data.token0 = Some(t);
-            }
-        }
+        self.data.ticks.words.insert(
+            word_pos,
+            TicksBitMap {
+                bitmap: bm,
+                ticks: ticks_map,
+            },
+        );
 
-        if self.data.token1.is_none() {
-            if let Ok(t) = contract.token1().call().await {
-                self.data.token1 = Some(t);
-            }
-        }
-
-        if self.data.tick_spacing.is_some() && self.data.slot0.is_some() {
-            let key = bitmap_math::get_pos_from_tick(
-                self.data.slot0.unwrap().1,
-                self.data.tick_spacing.unwrap(),
-            );
-
-            if let Some(ticks) = self
-                .get_word_ticks(key, self.data.tick_spacing.unwrap())
-                .await
-            {
-                self.data.ticks.words.insert(key, ticks);
-            }
-        }
-
-        self
+        Ok(self.data.ticks.clone())
     }
 }
 
@@ -107,6 +97,20 @@ impl Default for V3Data {
             tick_spacing: None,
             token0: None,
             token1: None,
+        }
+    }
+}
+
+impl From<V3Config> for V3Data {
+    fn from(value: V3Config) -> Self {
+        Self {
+            slot0: None,
+            liquidity: None,
+            ticks: PoolWords::default(),
+            tick_spacing: value.tick_spacing,
+            fee: value.fee,
+            token0: value.token0,
+            token1: value.token1,
         }
     }
 }

@@ -1,7 +1,7 @@
 use std::collections::BTreeMap;
 
 use alloy_primitives::aliases::I24;
-use chain_db::sled_pool_parts::{II24, TickData, TicksBitMap};
+use chain_db::p_ticks::{II24, TickData, TicksBitMap};
 use futures::future::join_all;
 use v3::v3_base::bitmap_math;
 

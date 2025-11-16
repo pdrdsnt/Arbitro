@@ -1,4 +1,4 @@
-use std::cell::RefCell;
+use std::{cell::RefCell, sync::Arc};
 
 use alloy_primitives::{
     Address,
@@ -40,8 +40,6 @@ impl<P: Provider + Clone> V4Factory<P> {
     ) -> Vec<V4Pool<P>> {
         let [a, b] = [token_a, token_b];
 
-        let mut pools = Vec::new();
-
         let fees = vec![100, 250, 500, 1000, 1500, 2000, 2500, 3000, 5000, 10000];
         let hooks = vec![Address::ZERO];
         let spacings = vec![1, 5, 10, 20, 30, 40, 50, 60, 100, 200, 400, 1000];
@@ -80,7 +78,7 @@ impl<P: Provider + Clone> V4Factory<P> {
                         continue;
                     }
 
-                    let new = V4Data {
+                    let data = V4Data {
                         slot0: None,
                         liquidity: None,
                         ticks: PoolWords::default(),
@@ -88,15 +86,14 @@ impl<P: Provider + Clone> V4Factory<P> {
                     };
 
                     let mut new_pool = V4Pool {
-                        data: new,
+                        data: data,
                         //the contract is the same here
                         //this is not wrong
                         contract: self.contract.clone(),
                         id: keccak256(key.abi_encode()),
                     };
 
-                    fut.push(async move { new_pool.sync_liquidity().await });
-                    pools.push((pool_config, new_pool));
+                    fut.push(async move { (new_pool.sync_liquidity().await, new_pool) });
                 }
             }
         }
@@ -104,11 +101,14 @@ impl<P: Provider + Clone> V4Factory<P> {
         let results = join_all(fut).await;
         let mut real_pools = Vec::new();
 
-        for (res, (config, pool)) in results.iter().zip(pools) {
+        for (res, mut pool) in results.into_iter() {
             if let Ok(r) = res {
+                pool.data.liquidity = Some(r);
                 real_pools.push(pool)
             } else {
-                self.tried.borrow_mut().insert(AnyPoolConfig::V4(config));
+                self.tried
+                    .borrow_mut()
+                    .insert(AnyPoolConfig::V4(pool.data.pool_key.into()));
             }
         }
 
