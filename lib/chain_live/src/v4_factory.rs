@@ -28,7 +28,7 @@ pub struct V4Factory<P: Provider + Clone> {
     pub chain_id: u64,
     pub name: String,
     pub contract: StateViewInstance<P>,
-    tried: RefCell<HashSet<AnyPoolConfig>>,
+    tried: RefCell<HashSet<V4Config>>,
 }
 
 impl<P: Provider + Clone> V4Factory<P> {
@@ -36,7 +36,7 @@ impl<P: Provider + Clone> V4Factory<P> {
         &self,
         token_a: Address,
         token_b: Address,
-        found: HashSet<V4Config>,
+        found: HashSet<AnyPoolConfig>,
     ) -> Vec<V4Pool<P>> {
         let [a, b] = [token_a, token_b];
 
@@ -68,13 +68,9 @@ impl<P: Provider + Clone> V4Factory<P> {
                         token1: b,
                     };
 
-                    if found.contains(&(
-                        pool_config,
-                        Tokens {
-                            a: Some(a),
-                            b: Some(b),
-                        },
-                    )) {
+                    if self.tried.borrow().contains(&pool_config)
+                        || found.contains(&AnyPoolConfig::V4(pool_config))
+                    {
                         continue;
                     }
 
@@ -86,7 +82,7 @@ impl<P: Provider + Clone> V4Factory<P> {
                     };
 
                     let mut new_pool = V4Pool {
-                        data: data,
+                        data,
                         //the contract is the same here
                         //this is not wrong
                         contract: self.contract.clone(),
@@ -106,9 +102,7 @@ impl<P: Provider + Clone> V4Factory<P> {
                 pool.data.liquidity = Some(r);
                 real_pools.push(pool)
             } else {
-                self.tried
-                    .borrow_mut()
-                    .insert(AnyPoolConfig::V4(pool.data.pool_key.into()));
+                self.tried.borrow_mut().insert(pool.data.pool_key.into());
             }
         }
 

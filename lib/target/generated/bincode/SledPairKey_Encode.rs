@@ -5,9 +5,7 @@ impl :: bincode :: Encode for SledPairKey
     :: error :: EncodeError >
     {
         :: bincode :: Encode :: encode(&self.id, encoder) ?; :: bincode ::
-        Encode :: encode(&::bincode::serde::Compat(&self.a), encoder) ?; ::
-        bincode :: Encode ::
-        encode(&::bincode::serde::Compat(&self.b), encoder) ?; core :: result
-        :: Result :: Ok(())
+        Encode :: encode(&self.pair, encoder) ?; core :: result :: Result ::
+        Ok(())
     }
 }

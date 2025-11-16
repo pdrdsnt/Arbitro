@@ -7,11 +7,8 @@ impl < __Context > :: bincode :: Decode < __Context > for SledPairKey
         core :: result :: Result ::
         Ok(Self
         {
-            id : :: bincode :: Decode :: decode(decoder) ?, a :
-            (<::bincode::serde::Compat<_> as
-            ::bincode::Decode::<__Context>>::decode(decoder)?).0, b :
-            (<::bincode::serde::Compat<_> as
-            ::bincode::Decode::<__Context>>::decode(decoder)?).0,
+            id : :: bincode :: Decode :: decode(decoder) ?, pair : :: bincode
+            :: Decode :: decode(decoder) ?,
         })
     }
 } impl < '__de, __Context > :: bincode :: BorrowDecode < '__de, __Context >
@@ -25,13 +22,8 @@ for SledPairKey
         Ok(Self
         {
             id : :: bincode :: BorrowDecode ::< '_, __Context >::
-            borrow_decode(decoder) ?, a :
-            (<::bincode::serde::BorrowCompat<_> as
-            ::bincode::BorrowDecode::<'_,
-            __Context>>::borrow_decode(decoder)?).0, b :
-            (<::bincode::serde::BorrowCompat<_> as
-            ::bincode::BorrowDecode::<'_,
-            __Context>>::borrow_decode(decoder)?).0,
+            borrow_decode(decoder) ?, pair : :: bincode :: BorrowDecode ::<
+            '_, __Context >:: borrow_decode(decoder) ?,
         })
     }
 }

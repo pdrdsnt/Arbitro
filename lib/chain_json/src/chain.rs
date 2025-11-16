@@ -15,7 +15,7 @@ use crate::chain_json_model::{
 };
 
 #[derive(Debug)]
-pub struct Chain {
+pub struct ChainJsonInput {
     pub id: u64,
     pub tokens: Vec<TokenJsonModel>,
     pub dexes: Vec<DexJsonModel>,
@@ -23,7 +23,7 @@ pub struct Chain {
     pub http_nodes_urls: Vec<String>,
 }
 
-impl From<ChainDataJsonModel> for Chain {
+impl From<ChainDataJsonModel> for ChainJsonInput {
     fn from(value: ChainDataJsonModel) -> Self {
         Self {
             id: value.id,

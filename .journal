@@ -1,0 +1,16 @@
+updating v3 factory return types 
+integrating it with local db
+
+search pool calls has horrible design
+i need to subdivide v3 and v4 factory search calls
+
+creating trait to flatten all possibilities
+
+creating search contex and seatch engine
+so i can organize local db integration
+and these calls are already enough to justify an especiallized architeture
+
+04:17  
+04:58
+
+

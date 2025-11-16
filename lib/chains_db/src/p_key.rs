@@ -26,6 +26,11 @@ impl AddId {
 #[derive(Decode, Encode, Hash, Debug, PartialEq, Eq, PartialOrd, Ord)]
 pub struct SledPairKey {
     id: u64,
+    pair: Pair,
+}
+
+#[derive(Decode, Encode, Hash, Debug, PartialEq, Eq, PartialOrd, Ord)]
+pub struct Pair {
     #[bincode(with_serde)]
     a: Address,
     #[bincode(with_serde)]
@@ -34,7 +39,10 @@ pub struct SledPairKey {
 
 impl SledPairKey {
     pub fn new(id: u64, a: Address, b: Address) -> Self {
-        Self { id, a, b }
+        Self {
+            id,
+            pair: Pair { a, b },
+        }
     }
 }
 

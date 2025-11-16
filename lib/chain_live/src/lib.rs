@@ -9,7 +9,10 @@ pub mod factory;
 
 pub mod any_factory;
 pub mod any_pool;
+pub mod chain;
+pub mod chains;
 pub mod clpool;
+pub mod factory_context;
 pub mod token;
 pub mod v2_factory;
 pub mod v2_pool;
@@ -17,6 +20,7 @@ pub mod v3_factory;
 pub mod v3_pool;
 pub mod v4_factory;
 pub mod v4_pool;
+pub mod v4_search_plan;
 
 pub type MyProvider = alloy_provider::fillers::FillProvider<
     alloy_provider::fillers::JoinFill<

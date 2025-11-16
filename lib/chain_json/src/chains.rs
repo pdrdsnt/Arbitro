@@ -3,16 +3,16 @@ use std::{collections::BTreeMap, env::home_dir, path::PathBuf, str::FromStr};
 use chain_db::chains_db::ChainsDB;
 
 use crate::{
-    chain::Chain,
+    chain::ChainJsonInput,
     chain_json_model::{BlockChainsJsonModel, ChainDataJsonModelSmall},
 };
 
 #[derive(Debug)]
-pub struct Chains {
-    pub chains: BTreeMap<u64, Chain>,
+pub struct ChainsJsonInput {
+    pub chains: BTreeMap<u64, ChainJsonInput>,
 }
 
-impl Default for Chains {
+impl Default for ChainsJsonInput {
     fn default() -> Self {
         let chains_models: BlockChainsJsonModel = {
             let mut home = home_dir().unwrap();
@@ -34,12 +34,12 @@ impl Default for Chains {
     }
 }
 
-impl From<BlockChainsJsonModel> for Chains {
+impl From<BlockChainsJsonModel> for ChainsJsonInput {
     fn from(value: BlockChainsJsonModel) -> Self {
         //each chain has its db
         let mut v = BTreeMap::new();
         for chain in value.chains.into_iter() {
-            let c = Chain::from(chain);
+            let c = ChainJsonInput::from(chain);
             v.insert(c.id, c);
         }
 
@@ -47,7 +47,7 @@ impl From<BlockChainsJsonModel> for Chains {
     }
 }
 
-impl Chains {
+impl ChainsJsonInput {
     pub async fn get_chain_data(&self, id: u64) -> Option<ChainDataJsonModelSmall> {
         let chain = self.chains.get(&id)?;
         let tokens = chain.tokens.clone();
