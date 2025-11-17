@@ -1,18 +1,1 @@
-impl :: bincode :: Encode for V4Config
-{
-    fn encode < __E : :: bincode :: enc :: Encoder >
-    (& self, encoder : & mut __E) ->core :: result :: Result < (), :: bincode
-    :: error :: EncodeError >
-    {
-        :: bincode :: Encode ::
-        encode(&::bincode::serde::Compat(&self.fee), encoder) ?; :: bincode ::
-        Encode ::
-        encode(&::bincode::serde::Compat(&self.tick_spacing), encoder) ?; ::
-        bincode :: Encode ::
-        encode(&::bincode::serde::Compat(&self.hooks), encoder) ?; :: bincode
-        :: Encode :: encode(&::bincode::serde::Compat(&self.token0), encoder)
-        ?; :: bincode :: Encode ::
-        encode(&::bincode::serde::Compat(&self.token1), encoder) ?; core ::
-        result :: Result :: Ok(())
-    }
-}
+impl :: bincode :: Encode for V4Config {fn encode < __E : :: bincode :: enc :: Encoder > (& self , encoder : & mut __E) ->core :: result :: Result < () , :: bincode :: error :: EncodeError > {:: bincode :: Encode :: encode (&:: bincode :: serde :: Compat (& self . fee) , encoder) ?; :: bincode :: Encode :: encode (&:: bincode :: serde :: Compat (& self . tick_spacing) , encoder) ?; :: bincode :: Encode :: encode (&:: bincode :: serde :: Compat (& self . hooks) , encoder) ?; :: bincode :: Encode :: encode (&:: bincode :: serde :: Compat (& self . token0) , encoder) ?; :: bincode :: Encode :: encode (&:: bincode :: serde :: Compat (& self . token1) , encoder) ?; core :: result :: Result :: Ok (())}}

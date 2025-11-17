@@ -1,54 +1,34 @@
-use std::{
-    cell::RefCell,
-    collections::{BTreeMap, HashSet},
-    sync::Arc,
-};
+use std::{cell::RefCell, collections::HashSet, sync::Arc};
 
 use alloy_primitives::{
     Address,
     aliases::{I24, U24},
 };
 use alloy_provider::Provider;
-use alloy_sol_types::abi::Token;
 use chain_db::{
     p_config::{AnyPoolConfig, V3Config},
-    p_key::SledPairKey,
-    p_ticks::PoolWords,
-    p_tokens::Tokens,
+    p_key::Pair,
 };
-use futures::future::join_all;
-use sol::sol_types::{IUniswapV3Factory::IUniswapV3FactoryInstance, V3Pool::V3PoolInstance};
+use sol::sol_types::IUniswapV3Factory::IUniswapV3FactoryInstance;
 
 use crate::{
+    chains::Chains,
     factory::{FEES, Factory, TICK_SPACES},
-    factory_context::{self, SearchContext},
-    v3_pool::{V3Data, V3Pool},
+    search_context::SearchContext,
 };
 
-pub struct V3Factory<P: Provider + Clone> {
-    pub name: String,
+pub struct V3Factory<'a, P: Provider + Clone> {
     pub contract: IUniswapV3FactoryInstance<P>,
-    tried: RefCell<HashSet<V3Config>>,
-    pub ctx: Arc<SearchContext>,
-    pub chain: u64,
-    pub targets: Vec<Address>,
+    pub ctx: &'a SearchContext,
+    pub chain_id: u64,
 }
 
-impl<P: Provider + Clone> V3Factory<P> {
-    pub fn new(
-        name: String,
-        addr: Address,
-        provider: P,
-        ctx: Arc<SearchContext>,
-        chain: u64,
-    ) -> Self {
+impl<'a, P: Provider + Clone> V3Factory<'a, P> {
+    pub fn new(addr: Address, provider: P, ctx: &'a SearchContext, chain_id: u64) -> Self {
         Self {
-            name,
             contract: IUniswapV3FactoryInstance::new(addr, provider.clone()),
-            tried: RefCell::new(HashSet::new()),
             ctx,
-            chain,
-            targets: vec![],
+            chain_id,
         }
     }
 }
@@ -56,34 +36,25 @@ impl<P: Provider + Clone> V3Factory<P> {
 #[derive(Debug, PartialEq, PartialOrd, Ord, Eq, Hash)]
 pub struct V3Key((Address, Address, U24));
 
-impl<P: Provider + Clone> Factory<P> for V3Pool<P> {
+impl<'a, P: Provider + Clone> Factory<P> for V3Factory<'a, P> {
     fn get_space(&self) -> Vec<AnyPoolConfig> {
         let mut vec = vec![];
-        let targets = self.get_targets();
 
-        for fee in FEES {
-            for spacing in TICK_SPACES {}
-            for token0 in targets {}
+        for (i, _fee) in FEES.iter().enumerate() {
+            let Ok(fee) = U24::try_from(*_fee) else {
+                continue;
+            };
+            let Some(_tick_spacing) = TICK_SPACES.get(i) else {
+                continue;
+            };
+            let Ok(tick_spacing) = I24::try_from(*_tick_spacing) else {
+                continue;
+            };
         }
+        vec
     }
 
-    fn get_ctx(&self) -> &crate::factory_context::SearchContext {
-        todo!()
-    }
-
-    fn get_targets(&self) -> Vec<SledPairKey> {
-        todo!()
-    }
-
-    fn create_calls(&self) {
-        let arr = self.get_space();
-
-        for any_config in arr {
-            match any_config {
-                AnyPoolConfig::V2(v2_config) => {}
-                AnyPoolConfig::V3(v3_config) => {}
-                AnyPoolConfig::V4(v4_config) => {}
-            }
-        }
+    fn get_ctx(&self) -> &SearchContext {
+        self.ctx
     }
 }

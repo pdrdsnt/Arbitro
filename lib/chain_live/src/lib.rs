@@ -1,7 +1,7 @@
 use std::{num::NonZeroUsize, str::FromStr};
 
 use alloy::{rpc::client::RpcClient, transports::http::Http};
-use alloy_provider::{ProviderBuilder, transport::layers::FallbackLayer};
+use alloy_provider::{Provider, ProviderBuilder, transport::layers::FallbackLayer};
 use tower::ServiceBuilder;
 use url::Url;
 
@@ -12,7 +12,7 @@ pub mod any_pool;
 pub mod chain;
 pub mod chains;
 pub mod clpool;
-pub mod factory_context;
+pub mod search_context;
 pub mod token;
 pub mod v2_factory;
 pub mod v2_pool;
@@ -38,6 +38,10 @@ pub type MyProvider = alloy_provider::fillers::FillProvider<
     >,
     alloy_provider::RootProvider,
 >;
+
+pub fn generate_fallback_p(urls: Vec<String>) -> Option<impl Provider + Clone> {
+    generate_fallback_provider(urls)
+}
 
 pub fn generate_fallback_provider(urls: Vec<String>) -> Option<MyProvider> {
     if urls.is_empty() {

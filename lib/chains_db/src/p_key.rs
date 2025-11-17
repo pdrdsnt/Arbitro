@@ -25,16 +25,16 @@ impl AddId {
 
 #[derive(Decode, Encode, Hash, Debug, PartialEq, Eq, PartialOrd, Ord)]
 pub struct SledPairKey {
-    id: u64,
-    pair: Pair,
+    pub id: u64,
+    pub pair: Pair,
 }
 
 #[derive(Decode, Encode, Hash, Debug, PartialEq, Eq, PartialOrd, Ord)]
 pub struct Pair {
     #[bincode(with_serde)]
-    a: Address,
+    pub a: Address,
     #[bincode(with_serde)]
-    b: Address,
+    pub b: Address,
 }
 
 impl SledPairKey {
